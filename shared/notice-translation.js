@@ -1,3 +1,6 @@
+import { segmentText } from "./translation-text.js";
+export { segmentText } from "./translation-text.js";
+import { azureConfiguration, translateWithAzure } from "./azure-translation.js";
 import { createHash } from "node:crypto";
 import { languageIds } from "./languages.js";
 
@@ -57,32 +60,6 @@ export function availableTranslation(notice, target) {
 
 // Preserve URLs, markup tokens and paragraph breaks. Translate only text, never
 // send image URLs/HTML to a translation engine or render its output as HTML.
-export function segmentText(value) {
-  const parts = String(value || "").split(
-    /(https:\/\/[^\s)"'<>]+|\n+|^#{1,3} |^- |!\[|\]\(|\))/gm,
-  );
-  const indexes = [];
-  const texts = [];
-  parts.forEach((part, i) => {
-    if (
-      part.trim() &&
-      !/^https:\/\//.test(part) &&
-      !/^(#{1,3} |\- |!\[|\]\(|\))$/.test(part)
-    ) {
-      indexes.push(i);
-      texts.push(part);
-    }
-  });
-  return {
-    texts,
-    rebuild: (translated) => {
-      if (translated.length !== texts.length)
-        throw Error("invalid_translation");
-      indexes.forEach((index, i) => (parts[index] = translated[i]));
-      return parts.join("");
-    },
-  };
-}
 export async function translateWithLibre(source, target, fetcher = fetch) {
   const endpoint = process.env.TRANSLATION_API_URL;
   if (!endpoint) throw Error("translation_not_configured");
@@ -167,18 +144,19 @@ export async function translateWithLibre(source, target, fetcher = fetch) {
 }
 
 const inFlight = new Map();
-export async function ensureTranslation(
-  db,
-  notice,
-  target,
-  provider = translateWithLibre,
-) {
+export async function ensureTranslation(db, notice, target, provider) {
   if (!languageIds.includes(target)) throw Error("unsupported_locale");
   const existing = availableTranslation(notice, target);
   if (!existing) throw Error("source_missing");
   if (existing.translation !== "original") return existing;
-  if (!process.env.TRANSLATION_API_URL && provider === translateWithLibre)
-    throw Error("translation_not_configured");
+  const engine =
+    process.env.TRANSLATION_PROVIDER ||
+    (process.env.TRANSLATION_API_URL ? "libretranslate" : "azure");
+  if (!provider) {
+    if (engine === "azure") azureConfiguration();
+    else if (engine !== "libretranslate" || !process.env.TRANSLATION_API_URL)
+      throw Error("translation_not_configured");
+  }
   const source = sourceOf(notice);
   const hash = sourceHash(source);
   const key = `${notice.id}:${target}:${hash}`;
@@ -195,7 +173,32 @@ export async function ensureTranslation(
     }).then((r) => r.json());
     if (claim !== "claimed") throw Error("translation_busy");
     try {
-      const translated = await provider(source, target);
+      const translated = provider
+        ? await provider(source, target)
+        : engine === "azure"
+          ? await translateWithAzure(
+              source,
+              target,
+              fetch,
+              async (characters) => {
+                let result;
+                try {
+                  result = await db("rpc/reserve_translation_characters", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      p_provider: "azure",
+                      p_characters: characters,
+                      p_limit: azureConfiguration().monthlyLimit,
+                    }),
+                  }).then((r) => r.json());
+                } catch {
+                  throw Error("translation_budget_unavailable");
+                }
+                if (result !== "reserved")
+                  throw Error("translation_quota_exceeded");
+              },
+            )
+          : await translateWithLibre(source, target);
       await db(
         "website_notice_auto_translations?on_conflict=notice_id,locale",
         {

@@ -55,6 +55,9 @@ let lang = "ko";
 let dirty = false;
 let autoTranslations = [];
 let translationSchemaReady = false;
+let translationTableMissing = false;
+let atomicSaveMissing = false;
+let translationBlockReason = "";
 let cachedPreviewHash = "";
 const translationFailures = new Map();
 let translating = false;
@@ -223,14 +226,20 @@ async function loadList() {
   notices = await rest(
     "website_notices?select=*,website_notice_translations(locale,title,summary,body)&order=pinned.desc,published_at.desc",
   );
-  try {
-    autoTranslations = await rest(
-      "website_notice_auto_translations?select=notice_id,locale,source_hash,title,summary,body,generated_at",
-    );
-    translationSchemaReady = true;
-  } catch {
-    autoTranslations = [];
-    translationSchemaReady = false;
+  if (!translationTableMissing) {
+    try {
+      autoTranslations = await rest(
+        "website_notice_auto_translations?select=notice_id,locale,source_hash,title,summary,body,generated_at",
+      );
+      translationSchemaReady = true;
+    } catch (error) {
+      autoTranslations = [];
+      translationSchemaReady = false;
+      // Keep transient network/permission failures retryable, but a missing table
+      // cannot appear until a migration is applied and the page is refreshed.
+      if (error.status === 404 && ["PGRST205", "42P01"].includes(error.code))
+        translationTableMissing = true;
+    }
   }
   $("schemaNotice").hidden = translationSchemaReady;
   renderList();
@@ -386,7 +395,12 @@ function show() {
   ["insertHeading", "insertList"].forEach(
     (id) => ($(id).disabled = !canWrite()),
   );
-  $("retryTranslations").disabled = !canWrite() || !cur.id || translating;
+  $("retryTranslations").disabled =
+    !canWrite() ||
+    !cur.id ||
+    translating ||
+    !translationSchemaReady ||
+    translationBlockReason;
   document
     .querySelectorAll("select")
     .forEach((select) => select.dispatchEvent(new Event("fg:sync")));
@@ -615,6 +629,11 @@ $("save").onclick = async () => {
     ).map(([locale]) => ({ locale, ...cur.tr[locale] }));
     let saved;
     try {
+      if (atomicSaveMissing) {
+        const missing = new Error("save_website_notice unavailable");
+        missing.code = "PGRST202";
+        throw missing;
+      }
       saved = await rest("rpc/save_website_notice", {
         method: "POST",
         json: {
@@ -625,6 +644,7 @@ $("save").onclick = async () => {
       });
     } catch (error) {
       if (error.code !== "PGRST202") throw error;
+      atomicSaveMissing = true;
       saved = await saveLegacyNotice(
         rest,
         fields,
@@ -879,6 +899,15 @@ async function upload(fileOrBlob, name, reuse = false) {
 
 // ---------- Translation status / regeneration ----------
 const translationErrors = {
+  translation_free_tier_required: "무료 F0 리소스 설정을 확인해 주세요.",
+  translation_budget_unavailable: "번역 사용량 보호 기능을 먼저 준비해 주세요.",
+  translation_quota_exceeded:
+    "이번 달 무료 번역 한도에 도달했습니다. 기존 번역문과 원문은 계속 표시됩니다.",
+  translation_rate_limited:
+    "번역 서비스가 잠시 요청을 제한했습니다. 잠시 후 새로고침해 주세요.",
+  translation_credentials_invalid:
+    "번역 서비스의 키와 리전 설정을 확인해 주세요.",
+
   translation_not_configured: "번역 서버가 연결되지 않았습니다.",
   unsupported_language_pair: "번역 서버가 이 언어 조합을 지원하지 않습니다.",
   translation_busy: "번역 서버가 다른 작업을 처리 중입니다.",
@@ -924,6 +953,16 @@ async function renderTranslationStatus() {
 }
 async function translateMissing() {
   if (!cur?.id || !canWrite() || translating) return;
+  if (!translationSchemaReady || translationBlockReason) {
+    $("translationMsg").textContent = !translationSchemaReady
+      ? "번역 기능이 아직 준비되지 않았습니다. 기존 공지 작성과 게시는 계속 사용할 수 있습니다."
+      : translationBlockReason === "translation_not_configured"
+        ? "번역 서버 설정이 필요합니다. 설정 후 페이지를 새로고침해 주세요."
+        : translationErrors[translationBlockReason] ||
+          "번역 서버에 연결하지 못해 요청을 중단했습니다. 연결 확인 후 페이지를 새로고침해 주세요.";
+    $("retryTranslations").disabled = true;
+    return;
+  }
   const notice = cur;
   const generation = editGeneration;
   const expectedHash = await hashSource();
@@ -941,7 +980,11 @@ async function translateMissing() {
   const failures = [];
   let index = 0;
   const worker = async () => {
-    while (index < pending.length && generation === editGeneration) {
+    while (
+      index < pending.length &&
+      generation === editGeneration &&
+      !translationBlockReason
+    ) {
       const [locale] = pending[index++];
       $("translationMsg").textContent =
         `자동 번역 확인 중 · ${complete + failures.length} / ${pending.length} · 이 화면을 유지해 주세요.`;
@@ -974,6 +1017,18 @@ async function translateMissing() {
         }
       } catch (error) {
         failures.push({ locale, error: error.message });
+        if (
+          [
+            "translation_not_configured",
+            "translation_unavailable",
+            "translation_free_tier_required",
+            "translation_budget_unavailable",
+            "translation_quota_exceeded",
+            "translation_rate_limited",
+            "translation_credentials_invalid",
+          ].includes(error.message)
+        )
+          translationBlockReason = error.message;
         if (generation === editGeneration) {
           translationFailures.set(locale, error.message);
           await renderTranslationStatus();
@@ -985,7 +1040,7 @@ async function translateMissing() {
     await Promise.all([worker(), worker()]);
     if (generation === editGeneration) {
       $("translationMsg").textContent = failures.length
-        ? `공지 저장 완료 · 번역 확인 ${complete}개 / 미완료 ${failures.length}개. ${translationErrors[failures[0].error] || "설정 또는 서버 상태를 확인해 주세요."}`
+        ? `공지 저장 완료 · 번역 확인 ${complete}개 / 미완료 ${pending.length - complete}개. ${translationErrors[failures[0].error] || "설정 또는 서버 상태를 확인해 주세요."}`
         : `${complete}개 언어의 자동 번역이 준비되었습니다.`;
       $("translationMsg").className = "msg " + (failures.length ? "bad" : "ok");
       setMsg("공지를 저장했습니다. 번역 현황을 확인해 주세요.");
@@ -993,7 +1048,11 @@ async function translateMissing() {
   } finally {
     translating = false;
     if (cur) {
-      $("retryTranslations").disabled = !canWrite() || !cur.id;
+      $("retryTranslations").disabled =
+        !canWrite() ||
+        !cur.id ||
+        !translationSchemaReady ||
+        translationBlockReason;
       $("save").disabled = !canWrite();
     }
   }

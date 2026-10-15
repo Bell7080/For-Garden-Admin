@@ -119,6 +119,42 @@ test("Postgres migration: atomic save, language expansion, stale-editor rejectio
       hash,
     ]);
     assert.equal(await claim("vi"), "claimed");
+    await db.exec(
+      await readFile(
+        new URL(
+          "../supabase/migrations/20261016210000_translation_budget.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    );
+    const reserve = async (chars, limit = 100) =>
+      (
+        await db.query(
+          "select reserve_translation_characters($1,$2,$3) result",
+          ["azure", chars, limit],
+        )
+      ).rows[0].result;
+    assert.equal(await reserve(60), "reserved");
+    assert.equal(await reserve(40), "reserved");
+    assert.equal(await reserve(1), "quota");
+    assert.equal(
+      (
+        await db.query(
+          "select characters::int count from website_translation_usage",
+        )
+      ).rows[0].count,
+      100,
+    );
+    await assert.rejects(reserve(1, 2000001), /invalid_translation_budget/);
+    await db.exec(
+      "insert into website_translation_usage values('azure',(date_trunc('month',now() at time zone 'UTC')-interval '1 month')::date,2000000)",
+    );
+    assert.equal(
+      await reserve(1, 101),
+      "reserved",
+      "prior month usage does not consume the current month allowance",
+    );
     assert(updated.updated_at);
   } finally {
     await db.close();
