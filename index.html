@@ -2,65 +2,83 @@
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>포가든 관리자</title>
-<style>
-:root{--paper:#f7f6ee;--ink:#20382d;--muted:#72796b;--yellow:#ead585;--line:#d9dccd;--bad:#a33a2e;--ok:#2f7a4a}
-*{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);font-family:"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif}
-main{max-width:440px;margin:12vh auto;padding:0 16px}
-h1{font-size:22px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 24px;font-size:14px}
-.card{background:#fff;border:1px solid var(--line);padding:20px}
-label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
-input{width:100%;padding:10px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font:inherit}
-button{margin-top:16px;width:100%;padding:11px;border:0;background:var(--ink);color:var(--yellow);font:inherit;font-weight:700;cursor:pointer}
-button.ghost{background:none;color:var(--muted);border:1px solid var(--line)}
-.msg{margin-top:14px;font-size:14px;min-height:1.4em}.bad{color:var(--bad)}.ok{color:var(--ok)}
-dl{margin:0;font-size:14px}dt{color:var(--muted);margin-top:10px}dd{margin:2px 0 0;word-break:break-all}
-[hidden]{display:none}
-</style></head><body><main>
-<h1>포가든 관리자</h1><p class="sub">운영 도구 · 허가된 계정만 사용할 수 있습니다.</p>
-<section class="card" id="login">
-  <form id="form" autocomplete="on">
+<link rel="stylesheet" href="/admin.css">
+</head><body>
+<section id="login">
+  <h1>포가든 관리자</h1><p class="sub">운영 도구 · 허가된 계정만 사용할 수 있습니다.</p>
+  <form class="card" id="form" autocomplete="on">
     <label for="email">이메일</label><input id="email" type="email" required autocomplete="username">
     <label for="pw">비밀번호</label><input id="pw" type="password" required autocomplete="current-password">
-    <button type="submit">로그인</button>
+    <div class="actions"><button class="btn primary" type="submit">로그인</button></div>
+    <p class="msg" id="loginMsg" role="status"></p>
   </form>
 </section>
-<section class="card" id="panel" hidden>
-  <dl><dt>계정</dt><dd id="who"></dd><dt>관리자 역할</dt><dd id="role"></dd><dt>백엔드 서버 시각</dt><dd id="now"></dd></dl>
-  <button class="ghost" id="out" type="button">로그아웃</button>
-</section>
-<p class="msg" id="msg" role="status"></p>
-<script>
-// 공개(publishable) 키만 사용한다. service_role 키는 이 페이지에 절대 넣지 않는다.
-// 토큰은 메모리에만 두고 저장소(localStorage 등)에 쓰지 않는다 — 새로고침하면 다시 로그인한다.
-const URL_ = "https://rscxzfdnbdmftortrcqt.supabase.co";
-const KEY = "sb_publishable_6GAse3Mlp_cQGukyOiLI7w_tfd4nZDH";
-let token = null;
-const $ = id => document.getElementById(id);
-const msg = (t, c) => { $("msg").textContent = t; $("msg").className = "msg " + (c || ""); };
-const api = (path, body, auth) => fetch(URL_ + path, {
-  method: "POST",
-  headers: { apikey: KEY, "Content-Type": "application/json", ...(auth ? { Authorization: "Bearer " + auth } : {}) },
-  body: JSON.stringify(body || {}),
-});
-async function show(email) {
-  const r = await api("/rest/v1/rpc/is_admin", {}, token);
-  const isAdmin = r.ok && (await r.json()) === true;
-  if (!isAdmin) { token = null; msg("이 계정은 관리자 권한이 없습니다.", "bad"); return; }
-  const roles = await fetch(URL_ + "/rest/v1/admin_roles?select=role", { headers: { apikey: KEY, Authorization: "Bearer " + token } }).then(x => x.json());
-  const ping = await api("/rest/v1/rpc/ping", {}, token).then(x => x.json());
-  $("who").textContent = email; $("role").textContent = roles.map(x => x.role).join(", ");
-  $("now").textContent = ping.server_now;
-  $("login").hidden = true; $("panel").hidden = false; msg("");
-}
-$("form").addEventListener("submit", async e => {
-  e.preventDefault(); msg("확인 중…");
-  try {
-    const r = await api("/auth/v1/token?grant_type=password", { email: $("email").value, password: $("pw").value });
-    if (!r.ok) { msg("로그인에 실패했습니다.", "bad"); return; }
-    token = (await r.json()).access_token; $("pw").value = "";
-    await show($("email").value);
-  } catch { msg("백엔드에 연결하지 못했습니다.", "bad"); }
-});
-$("out").addEventListener("click", () => { token = null; $("panel").hidden = true; $("login").hidden = false; msg(""); });
-</script></main></body></html>
+
+<div id="app" hidden>
+  <header class="top"><strong>포가든 관리자</strong><span>공지 관리</span><span class="spacer"></span><span id="who"></span><button class="btn ghost" id="logout" type="button">로그아웃</button></header>
+  <div class="app">
+    <aside class="side">
+      <button class="btn primary" id="newNotice" type="button" style="width:100%">+ 새 공지</button>
+      <div class="filters">
+        <select id="fCat"><option value="">전체 분류</option><option value="notice">공지</option><option value="development">개발 소식</option><option value="event">이벤트</option></select>
+        <select id="fStatus"><option value="">전체 상태</option><option value="published">게시됨</option><option value="draft">임시저장</option></select>
+      </div>
+      <input id="fText" placeholder="제목·주소 검색">
+      <div id="list"></div>
+    </aside>
+    <main class="main">
+      <section class="card" id="editor" hidden>
+        <div class="row2">
+          <div><label>분류</label><select id="category"><option value="notice">공지</option><option value="development">개발 소식</option><option value="event">이벤트</option></select></div>
+          <div><label>상태</label><select id="status"><option value="draft">임시저장</option><option value="published">게시</option></select></div>
+        </div>
+        <div class="row2">
+          <div><label>주소(slug) — 만든 뒤에는 바꿀 수 없음</label><input id="slug" maxlength="100" placeholder="영문 소문자·숫자·-"></div>
+          <div><label>게시 시각 (이 시각이 지나야 공개)</label><input id="publishedAt" type="datetime-local"></div>
+        </div>
+        <div class="row2">
+          <div><label>템플릿 (새 공지에서 본문 틀을 채움)</label><select id="template"><option value="plain">기본 공지</option><option value="update">업데이트 안내</option><option value="event">이벤트</option></select></div>
+          <div><label>상단 고정</label><select id="pinned"><option value="false">아니오</option><option value="true">예 (★ 목록 맨 위)</option></select></div>
+        </div>
+        <label>대표 이미지 (목록 썸네일 + 팝업 상단)</label>
+        <div class="coverbox"><img id="coverImg" alt="" hidden><button class="btn" id="pickCover" type="button">이미지 선택</button><button class="btn ghost" id="clearCover" type="button">제거</button></div>
+        <div class="tabs" id="langTabs"></div>
+        <div class="card" style="border-top-left-radius:0">
+          <label>제목</label><input id="title" maxlength="200">
+          <label>요약 (목록 아래 한 줄)</label><input id="summary">
+          <label>본문 — 빈 줄로 문단을 나누고, 이미지는 <code>![설명](https://…)</code> 한 줄</label>
+          <textarea id="body"></textarea>
+          <div class="toolbar"><button class="btn" id="insertImg" type="button">본문에 이미지 넣기</button></div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="save" type="button">저장</button>
+          <button class="btn" id="dup" type="button">복제</button>
+          <button class="btn danger" id="remove" type="button">삭제</button>
+        </div>
+        <p class="msg" id="msg" role="status"></p>
+      </section>
+      <section class="pv" id="preview" hidden>
+        <h3>미리보기 — 목록에서 보이는 모습</h3>
+        <div id="pvRow"></div>
+        <h3 style="margin-top:18px">미리보기 — 눌렀을 때 뜨는 팝업</h3>
+        <div class="dialog" id="pvDialog"></div>
+      </section>
+      <p id="empty" style="grid-column:1/-1;color:#72796b">왼쪽에서 공지를 고르거나 새 공지를 만드세요.</p>
+    </main>
+  </div>
+</div>
+
+<div class="modal" id="picker" hidden>
+  <div class="box">
+    <div class="head">
+      <button class="btn" data-tab="upload">업로드</button>
+      <button class="btn ghost" data-tab="recent">올린 이미지</button>
+      <button class="btn ghost" data-tab="game">포가든 원본</button>
+      <select id="gameGroup" hidden></select>
+      <span class="spacer"></span><button class="btn ghost" id="closePicker" type="button">닫기</button>
+    </div>
+    <div class="body" id="pickerBody"></div>
+  </div>
+</div>
+<script type="module" src="/admin.js"></script>
+</body></html>

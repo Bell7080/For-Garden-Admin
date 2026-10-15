@@ -1,0 +1,402 @@
+[
+{
+"group": "배경",
+"name": "background_001",
+"url": "https://forgarden.vercel.app/sprites/background/background_001.webp"
+},
+{
+"group": "배경",
+"name": "background_002",
+"url": "https://forgarden.vercel.app/sprites/background/background_002.webp"
+},
+{
+"group": "배경",
+"name": "background_003",
+"url": "https://forgarden.vercel.app/sprites/background/background_003.webp"
+},
+{
+"group": "배경",
+"name": "background_004",
+"url": "https://forgarden.vercel.app/sprites/background/background_004.webp"
+},
+{
+"group": "배경",
+"name": "background_005",
+"url": "https://forgarden.vercel.app/sprites/background/background_005.webp"
+},
+{
+"group": "배경",
+"name": "background_006",
+"url": "https://forgarden.vercel.app/sprites/background/background_006.webp"
+},
+{
+"group": "배경",
+"name": "background_007",
+"url": "https://forgarden.vercel.app/sprites/background/background_007.webp"
+},
+{
+"group": "배경",
+"name": "background_008",
+"url": "https://forgarden.vercel.app/sprites/background/background_008.webp"
+},
+{
+"group": "배경",
+"name": "background_009",
+"url": "https://forgarden.vercel.app/sprites/background/background_009.webp"
+},
+{
+"group": "배경",
+"name": "background_010",
+"url": "https://forgarden.vercel.app/sprites/background/background_010.webp"
+},
+{
+"group": "배경",
+"name": "background_011",
+"url": "https://forgarden.vercel.app/sprites/background/background_011.webp"
+},
+{
+"group": "배경",
+"name": "background_013",
+"url": "https://forgarden.vercel.app/sprites/background/background_013.webp"
+},
+{
+"group": "배경",
+"name": "background_014",
+"url": "https://forgarden.vercel.app/sprites/background/background_014.webp"
+},
+{
+"group": "배경",
+"name": "background_015",
+"url": "https://forgarden.vercel.app/sprites/background/background_015.webp"
+},
+{
+"group": "배경",
+"name": "background_016",
+"url": "https://forgarden.vercel.app/sprites/background/background_016.webp"
+},
+{
+"group": "배경",
+"name": "background_017",
+"url": "https://forgarden.vercel.app/sprites/background/background_017.webp"
+},
+{
+"group": "배경",
+"name": "duel_shop",
+"url": "https://forgarden.vercel.app/sprites/background/duel_shop.webp"
+},
+{
+"group": "배경",
+"name": "interaction_001",
+"url": "https://forgarden.vercel.app/sprites/background/interaction_001.webp"
+},
+{
+"group": "배경",
+"name": "interaction_002",
+"url": "https://forgarden.vercel.app/sprites/background/interaction_002.webp"
+},
+{
+"group": "배경",
+"name": "interaction_003",
+"url": "https://forgarden.vercel.app/sprites/background/interaction_003.webp"
+},
+{
+"group": "배경",
+"name": "interaction_004",
+"url": "https://forgarden.vercel.app/sprites/background/interaction_004.webp"
+},
+{
+"group": "배경",
+"name": "interaction_005",
+"url": "https://forgarden.vercel.app/sprites/background/interaction_005.webp"
+},
+{
+"group": "배경",
+"name": "interaction_006",
+"url": "https://forgarden.vercel.app/sprites/background/interaction_006.webp"
+},
+{
+"group": "배경",
+"name": "interaction_007",
+"url": "https://forgarden.vercel.app/sprites/background/interaction_007.webp"
+},
+{
+"group": "배경",
+"name": "interaction_008",
+"url": "https://forgarden.vercel.app/sprites/background/interaction_008.webp"
+},
+{
+"group": "배경",
+"name": "map_001",
+"url": "https://forgarden.vercel.app/sprites/background/map_001.webp"
+},
+{
+"group": "배경",
+"name": "recruit_dian",
+"url": "https://forgarden.vercel.app/sprites/background/recruit_dian.webp"
+},
+{
+"group": "배경",
+"name": "recruit_welcome",
+"url": "https://forgarden.vercel.app/sprites/background/recruit_welcome.webp"
+},
+{
+"group": "배경",
+"name": "story_train",
+"url": "https://forgarden.vercel.app/sprites/background/story_train.webp"
+},
+{
+"group": "배경",
+"name": "strata_base",
+"url": "https://forgarden.vercel.app/sprites/background/strata_base.webp"
+},
+{
+"group": "배경",
+"name": "strata_layer_001",
+"url": "https://forgarden.vercel.app/sprites/background/strata_layer_001.webp"
+},
+{
+"group": "배경",
+"name": "strata_layer_002",
+"url": "https://forgarden.vercel.app/sprites/background/strata_layer_002.webp"
+},
+{
+"group": "배경",
+"name": "strata_layer_003",
+"url": "https://forgarden.vercel.app/sprites/background/strata_layer_003.webp"
+},
+{
+"group": "배경",
+"name": "strata_layer_004",
+"url": "https://forgarden.vercel.app/sprites/background/strata_layer_004.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content1_001",
+"url": "https://forgarden.vercel.app/sprites/content/Content1_001.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content2_001",
+"url": "https://forgarden.vercel.app/sprites/content/Content2_001.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content2_001background",
+"url": "https://forgarden.vercel.app/sprites/content/Content2_001background.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content2_001field",
+"url": "https://forgarden.vercel.app/sprites/content/Content2_001field.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content2_001map",
+"url": "https://forgarden.vercel.app/sprites/content/Content2_001map.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content3_001",
+"url": "https://forgarden.vercel.app/sprites/content/Content3_001.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content3_001background",
+"url": "https://forgarden.vercel.app/sprites/content/Content3_001background.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content3_001field",
+"url": "https://forgarden.vercel.app/sprites/content/Content3_001field.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content4_001",
+"url": "https://forgarden.vercel.app/sprites/content/Content4_001.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content4_001background",
+"url": "https://forgarden.vercel.app/sprites/content/Content4_001background.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content4_001field",
+"url": "https://forgarden.vercel.app/sprites/content/Content4_001field.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content5_001",
+"url": "https://forgarden.vercel.app/sprites/content/Content5_001.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content5_001background",
+"url": "https://forgarden.vercel.app/sprites/content/Content5_001background.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content5_001field",
+"url": "https://forgarden.vercel.app/sprites/content/Content5_001field.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content6_001",
+"url": "https://forgarden.vercel.app/sprites/content/Content6_001.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content6_001background",
+"url": "https://forgarden.vercel.app/sprites/content/Content6_001background.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "Content6_001field",
+"url": "https://forgarden.vercel.app/sprites/content/Content6_001field.webp"
+},
+{
+"group": "콘텐츠 원화",
+"name": "journal_001",
+"url": "https://forgarden.vercel.app/sprites/content/journal_001.webp"
+},
+{
+"group": "아이템",
+"name": "ancient-core",
+"url": "https://forgarden.vercel.app/sprites/items/ancient-core.webp"
+},
+{
+"group": "아이템",
+"name": "duel-ticket",
+"url": "https://forgarden.vercel.app/sprites/items/duel-ticket.webp"
+},
+{
+"group": "아이템",
+"name": "raid-select-ticket",
+"url": "https://forgarden.vercel.app/sprites/items/raid-select-ticket.webp"
+},
+{
+"group": "아이템",
+"name": "raid-ticket",
+"url": "https://forgarden.vercel.app/sprites/items/raid-ticket.webp"
+},
+{
+"group": "아이템",
+"name": "refined-core",
+"url": "https://forgarden.vercel.app/sprites/items/refined-core.webp"
+},
+{
+"group": "아이템",
+"name": "restoration-crystal",
+"url": "https://forgarden.vercel.app/sprites/items/restoration-crystal.webp"
+},
+{
+"group": "아이템",
+"name": "stamina-tonic-large",
+"url": "https://forgarden.vercel.app/sprites/items/stamina-tonic-large.webp"
+},
+{
+"group": "아이템",
+"name": "stamina-tonic",
+"url": "https://forgarden.vercel.app/sprites/items/stamina-tonic.webp"
+},
+{
+"group": "아이템",
+"name": "sweep-ticket",
+"url": "https://forgarden.vercel.app/sprites/items/sweep-ticket.webp"
+},
+{
+"group": "재화",
+"name": "amber",
+"url": "https://forgarden.vercel.app/sprites/currency/amber.webp"
+},
+{
+"group": "재화",
+"name": "cake",
+"url": "https://forgarden.vercel.app/sprites/currency/cake.webp"
+},
+{
+"group": "재화",
+"name": "crystal",
+"url": "https://forgarden.vercel.app/sprites/currency/crystal.webp"
+},
+{
+"group": "재화",
+"name": "dna",
+"url": "https://forgarden.vercel.app/sprites/currency/dna.webp"
+},
+{
+"group": "재화",
+"name": "duel-emblem",
+"url": "https://forgarden.vercel.app/sprites/currency/duel-emblem.webp"
+},
+{
+"group": "재화",
+"name": "energy",
+"url": "https://forgarden.vercel.app/sprites/currency/energy.webp"
+},
+{
+"group": "재화",
+"name": "fossil",
+"url": "https://forgarden.vercel.app/sprites/currency/fossil.webp"
+},
+{
+"group": "재화",
+"name": "gold",
+"url": "https://forgarden.vercel.app/sprites/currency/gold.webp"
+},
+{
+"group": "재화",
+"name": "heart",
+"url": "https://forgarden.vercel.app/sprites/currency/heart.webp"
+},
+{
+"group": "재화",
+"name": "orestone",
+"url": "https://forgarden.vercel.app/sprites/currency/orestone.webp"
+},
+{
+"group": "재화",
+"name": "raid-sigil",
+"url": "https://forgarden.vercel.app/sprites/currency/raid-sigil.webp"
+},
+{
+"group": "재화",
+"name": "salvage-record",
+"url": "https://forgarden.vercel.app/sprites/currency/salvage-record.webp"
+},
+{
+"group": "web",
+"name": "토리카",
+"url": "/catalog/web/torika.webp"
+},
+{
+"group": "web",
+"name": "렉시아",
+"url": "/catalog/web/rex.webp"
+},
+{
+"group": "web",
+"name": "스피나",
+"url": "/catalog/web/spino.webp"
+},
+{
+"group": "web",
+"name": "이터널 시티",
+"url": "/catalog/web/city.webp"
+},
+{
+"group": "web",
+"name": "아카이브",
+"url": "/catalog/web/archive.webp"
+},
+{
+"group": "web",
+"name": "전투",
+"url": "/catalog/web/battle.webp"
+},
+{
+"group": "web",
+"name": "정원",
+"url": "/catalog/web/garden.webp"
+}
+]
