@@ -53,14 +53,7 @@ let notices = [];
 let cur = null; // 편집 중인 공지 { id|null, ...fields, tr: {ko:{title,summary,body},...} }
 let lang = "ko";
 let dirty = false;
-let autoTranslations = [];
-let translationSchemaReady = false;
-let translationTableMissing = false;
 let atomicSaveMissing = false;
-let translationBlockReason = "";
-let cachedPreviewHash = "";
-const translationFailures = new Map();
-let translating = false;
 let editGeneration = 0;
 const blankTranslations = () =>
   Object.fromEntries(
@@ -203,7 +196,6 @@ function logout() {
   session = null;
   cur = null;
   notices = [];
-  autoTranslations = [];
   dirty = false;
   editGeneration++;
   role = "";
@@ -226,22 +218,6 @@ async function loadList() {
   notices = await rest(
     "website_notices?select=*,website_notice_translations(locale,title,summary,body)&order=pinned.desc,published_at.desc",
   );
-  if (!translationTableMissing) {
-    try {
-      autoTranslations = await rest(
-        "website_notice_auto_translations?select=notice_id,locale,source_hash,title,summary,body,generated_at",
-      );
-      translationSchemaReady = true;
-    } catch (error) {
-      autoTranslations = [];
-      translationSchemaReady = false;
-      // Keep transient network/permission failures retryable, but a missing table
-      // cannot appear until a migration is applied and the page is refreshed.
-      if (error.status === 404 && ["PGRST205", "42P01"].includes(error.code))
-        translationTableMissing = true;
-    }
-  }
-  $("schemaNotice").hidden = translationSchemaReady;
   renderList();
 }
 function renderList() {
@@ -331,7 +307,6 @@ function open(n, asCopy = false) {
   for (const t of n.website_notice_translations ?? [])
     tr[t.locale] = { title: t.title, summary: t.summary, body: t.body };
   editGeneration++;
-  translationFailures.clear();
   cur = {
     source_locale:
       tr[n.source_locale || "ko"]?.title && tr[n.source_locale || "ko"]?.body
@@ -395,12 +370,6 @@ function show() {
   ["insertHeading", "insertList"].forEach(
     (id) => ($(id).disabled = !canWrite()),
   );
-  $("retryTranslations").disabled =
-    !canWrite() ||
-    !cur.id ||
-    translating ||
-    !translationSchemaReady ||
-    translationBlockReason;
   document
     .querySelectorAll("select")
     .forEach((select) => select.dispatchEvent(new Event("fg:sync")));
@@ -409,7 +378,6 @@ function show() {
   renderCover();
   preview();
   renderList();
-  renderTranslationStatus();
   $("msg").textContent = canWrite() ? "" : "이 역할은 읽기 전용입니다.";
 }
 function renderTabs() {
@@ -453,19 +421,12 @@ function fillLang() {
   $("body").value = t.body;
   $("languageStatus").textContent =
     lang === cur.source_locale
-      ? "원문 · 다른 언어 번역의 기준입니다."
-      : "선택 입력 · 비워 두면 자동 번역합니다. 직접 입력하면 자동 번역보다 우선합니다.";
+      ? "원문 · 공지의 기본 표시 언어입니다."
+      : "선택 입력 · 제목과 본문을 직접 작성한 언어만 표시합니다. 비워 두면 원문을 표시합니다.";
   $("titleCount").textContent = `${t.title.length} / 200`;
   ["title", "summary", "body"].forEach((id) => ($(id).lang = lang));
 }
 function readLang() {
-  if (
-    lang === cur.source_locale &&
-    (cur.tr[lang].title !== $("title").value ||
-      cur.tr[lang].summary !== $("summary").value ||
-      cur.tr[lang].body !== $("body").value)
-  )
-    cachedPreviewHash = "";
   cur.tr[lang] = {
     title: $("title").value,
     summary: $("summary").value,
@@ -488,7 +449,6 @@ function readFields() {
   cur.source_locale = $("sourceLocale").value;
   cur.pinned = $("pinned").value === "true";
   cur.template = $("template").value;
-  renderTranslationStatus();
 }
 function renderCover() {
   const img = $("coverImg");
@@ -549,13 +509,7 @@ const safeImage = (u) => /^https:\/\/[^\s"'<>]+$/.test(u);
 function preview() {
   if (!cur) return;
   const manual = cur.tr[lang].title && cur.tr[lang].body;
-  const automatic = autoTranslations.find(
-    (t) =>
-      t.notice_id === cur.id &&
-      t.locale === lang &&
-      t.source_hash === cachedPreviewHash,
-  );
-  const t = manual ? cur.tr[lang] : automatic || cur.tr[cur.source_locale];
+  const t = manual ? cur.tr[lang] : cur.tr[cur.source_locale];
   const date = dateTime(cur.published_at);
   const state = statusOf(cur);
   $("publishSummary").textContent = cur.invalidDate
@@ -572,11 +526,11 @@ function preview() {
           ? "변경 사항 게시"
           : "공지 게시";
   const cover = cur.cover_image && safeImage(cur.cover_image);
-  $("pvDialog").lang = manual || automatic ? lang : cur.source_locale;
+  $("pvDialog").lang = manual ? lang : cur.source_locale;
   $("pvRow").innerHTML =
     `<div class="news-row${cover ? " has-cover" : ""}">${cover ? `<img class="news-thumb" src="${esc(cur.cover_image)}" alt="">` : ""}<span class="news-category">${cur.pinned ? "고정 · " : ""}${CATEGORY[cur.category]}</span><strong>${esc(t.title || "(제목)")}</strong><time>${esc(date)}</time></div>`;
   $("pvDialog").innerHTML =
-    `<p class="eyebrow">GARDEN JOURNAL</p><h2>${esc(t.title || "(제목)")}</h2><time>${esc(date)}</time>${!manual ? `<p class="hint">${automatic ? "자동 번역 미리보기" : "번역 대기 · 원문 미리보기"}</p>` : ""}${cover ? `<img class="notice-cover" src="${esc(cur.cover_image)}" alt="">` : ""}<div class="notice-body">${renderBody(t.body)}</div>`;
+    `<p class="eyebrow">GARDEN JOURNAL</p><h2>${esc(t.title || "(제목)")}</h2><time>${esc(date)}</time>${!manual ? `<p class="hint">원문 미리보기</p>` : ""}${cover ? `<img class="notice-cover" src="${esc(cur.cover_image)}" alt="">` : ""}<div class="notice-body">${renderBody(t.body)}</div>`;
 }
 
 // ---------- 저장 / 복제 / 삭제 ----------
@@ -602,7 +556,7 @@ function validate() {
   return "";
 }
 $("save").onclick = async () => {
-  if (!canWrite() || translating) return;
+  if (!canWrite()) return;
   readFields();
   const bad = validate();
   if (bad) {
@@ -663,14 +617,13 @@ $("save").onclick = async () => {
     await loadList();
     show();
     if (saved.legacy) {
+      $("schemaNotice").hidden = false;
       setMsg(
-        "기존 방식으로 저장했습니다. 12개 언어·자동 번역·동시 편집 보호는 DB 업데이트 후 사용할 수 있습니다.",
+        "저장했습니다. 기존 3개 언어 작성 모드이며, 동시 편집 보호는 DB 업데이트 후 사용할 수 있습니다.",
       );
-      $("translationMsg").textContent =
-        "현재 3개 언어 수동 작성 호환 모드입니다.";
     } else {
-      setMsg("저장했습니다. 자동 번역을 확인합니다.");
-      await translateMissing();
+      $("schemaNotice").hidden = true;
+      setMsg("공지를 저장했습니다.");
     }
   } catch (error) {
     const message = error.message.includes("409")
@@ -897,173 +850,6 @@ async function upload(fileOrBlob, name, reuse = false) {
   return publicUrl(path);
 }
 
-// ---------- Translation status / regeneration ----------
-const translationErrors = {
-  translation_free_tier_required: "무료 F0 리소스 설정을 확인해 주세요.",
-  translation_budget_unavailable: "번역 사용량 보호 기능을 먼저 준비해 주세요.",
-  translation_quota_exceeded:
-    "이번 달 무료 번역 한도에 도달했습니다. 기존 번역문과 원문은 계속 표시됩니다.",
-  translation_rate_limited:
-    "번역 서비스가 잠시 요청을 제한했습니다. 잠시 후 새로고침해 주세요.",
-  translation_credentials_invalid:
-    "번역 서비스의 키와 리전 설정을 확인해 주세요.",
-
-  translation_not_configured: "번역 서버가 연결되지 않았습니다.",
-  unsupported_language_pair: "번역 서버가 이 언어 조합을 지원하지 않습니다.",
-  translation_busy: "번역 서버가 다른 작업을 처리 중입니다.",
-  translation_unavailable: "번역 서버에 연결하지 못했습니다.",
-};
-async function hashSource() {
-  const t = cur.tr[cur.source_locale];
-  const bytes = new TextEncoder().encode(
-    JSON.stringify([cur.source_locale, t.title, t.summary || "", t.body]),
-  );
-  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-    .map((n) => n.toString(16).padStart(2, "0"))
-    .join("");
-}
-let statusGeneration = 0;
-async function renderTranslationStatus() {
-  if (!cur) return;
-  const generation = ++statusGeneration;
-  const hash = await hashSource();
-  if (generation !== statusGeneration || !cur) return;
-  cachedPreviewHash = hash;
-  preview();
-  $("translationGrid").innerHTML = LOCALES.map(([id, name]) => {
-    const manual = cur.tr[id].title.trim() && cur.tr[id].body.trim();
-    const auto = autoTranslations.find(
-      (t) =>
-        t.notice_id === cur.id && t.locale === id && t.source_hash === hash,
-    );
-    const state =
-      id === cur.source_locale
-        ? "원문"
-        : manual
-          ? "직접 작성"
-          : auto
-            ? "자동 번역 완료"
-            : translationFailures.has(id)
-              ? translationFailures.get(id) === "unsupported_language_pair"
-                ? "언어 미지원"
-                : "번역 미완료"
-              : "번역 대기";
-    return `<div><b lang="${id}">${name}</b><span class="${manual || auto ? "complete" : ""}">${state}</span></div>`;
-  }).join("");
-}
-async function translateMissing() {
-  if (!cur?.id || !canWrite() || translating) return;
-  if (!translationSchemaReady || translationBlockReason) {
-    $("translationMsg").textContent = !translationSchemaReady
-      ? "번역 기능이 아직 준비되지 않았습니다. 기존 공지 작성과 게시는 계속 사용할 수 있습니다."
-      : translationBlockReason === "translation_not_configured"
-        ? "번역 서버 설정이 필요합니다. 설정 후 페이지를 새로고침해 주세요."
-        : translationErrors[translationBlockReason] ||
-          "번역 서버에 연결하지 못해 요청을 중단했습니다. 연결 확인 후 페이지를 새로고침해 주세요.";
-    $("retryTranslations").disabled = true;
-    return;
-  }
-  const notice = cur;
-  const generation = editGeneration;
-  const expectedHash = await hashSource();
-  const pending = LOCALES.filter(
-    ([id]) => !(notice.tr[id].title.trim() && notice.tr[id].body.trim()),
-  );
-  if (!pending.length) {
-    $("translationMsg").textContent = "모든 언어의 원고가 준비되었습니다.";
-    return;
-  }
-  translating = true;
-  $("retryTranslations").disabled = true;
-  $("save").disabled = true;
-  let complete = 0;
-  const failures = [];
-  let index = 0;
-  const worker = async () => {
-    while (
-      index < pending.length &&
-      generation === editGeneration &&
-      !translationBlockReason
-    ) {
-      const [locale] = pending[index++];
-      $("translationMsg").textContent =
-        `자동 번역 확인 중 · ${complete + failures.length} / ${pending.length} · 이 화면을 유지해 주세요.`;
-      try {
-        const response = await fetch("/api/translate", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ id: notice.id, locale }),
-          signal: AbortSignal.timeout(65000),
-        });
-        const result = await response.json();
-        if (!response.ok)
-          throw Error(result.error || "translation_unavailable");
-        if (generation === editGeneration) {
-          autoTranslations = autoTranslations.filter(
-            (t) => t.notice_id !== notice.id || t.locale !== locale,
-          );
-          translationFailures.delete(locale);
-          autoTranslations.push({
-            notice_id: notice.id,
-            locale,
-            source_hash: expectedHash,
-            ...result.translation,
-          });
-          complete++;
-          await renderTranslationStatus();
-        }
-      } catch (error) {
-        failures.push({ locale, error: error.message });
-        if (
-          [
-            "translation_not_configured",
-            "translation_unavailable",
-            "translation_free_tier_required",
-            "translation_budget_unavailable",
-            "translation_quota_exceeded",
-            "translation_rate_limited",
-            "translation_credentials_invalid",
-          ].includes(error.message)
-        )
-          translationBlockReason = error.message;
-        if (generation === editGeneration) {
-          translationFailures.set(locale, error.message);
-          await renderTranslationStatus();
-        }
-      }
-    }
-  };
-  try {
-    await Promise.all([worker(), worker()]);
-    if (generation === editGeneration) {
-      $("translationMsg").textContent = failures.length
-        ? `공지 저장 완료 · 번역 확인 ${complete}개 / 미완료 ${pending.length - complete}개. ${translationErrors[failures[0].error] || "설정 또는 서버 상태를 확인해 주세요."}`
-        : `${complete}개 언어의 자동 번역이 준비되었습니다.`;
-      $("translationMsg").className = "msg " + (failures.length ? "bad" : "ok");
-      setMsg("공지를 저장했습니다. 번역 현황을 확인해 주세요.");
-    }
-  } finally {
-    translating = false;
-    if (cur) {
-      $("retryTranslations").disabled =
-        !canWrite() ||
-        !cur.id ||
-        !translationSchemaReady ||
-        translationBlockReason;
-      $("save").disabled = !canWrite();
-    }
-  }
-}
-$("retryTranslations").onclick = () => {
-  if (dirty) {
-    setMsg("변경 사항을 먼저 저장해 주세요.", true);
-    return;
-  }
-  translateMissing();
-};
 $("insertHeading").onclick = () => insertText("## 소제목");
 $("insertList").onclick = () => insertText("- 항목 1\n- 항목 2");
 function insertText(value) {

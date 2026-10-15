@@ -1,10 +1,6 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
-import translate from "./api/translate.js";
-try {
-  process.loadEnvFile(".env.local");
-} catch {}
 const root = process.cwd();
 const port = Number(process.env.PORT || 5175);
 const types = {
@@ -19,39 +15,6 @@ http
   .createServer(async (req, res) => {
     const path = new URL(req.url, "http://localhost").pathname;
     try {
-      if (path === "/api/translate") {
-        let body = "";
-        for await (const chunk of req) {
-          body += chunk;
-          if (Buffer.byteLength(body) > 4096) {
-            res.writeHead(413).end();
-            return;
-          }
-        }
-        let parsed;
-        try {
-          parsed = body ? JSON.parse(body) : undefined;
-        } catch {
-          res.writeHead(400).end();
-          return;
-        }
-        const response = {
-          setHeader: (n, v) => res.setHeader(n, v),
-          status(code) {
-            res.statusCode = code;
-            return response;
-          },
-          json(value) {
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify(value));
-          },
-        };
-        await translate(
-          { method: req.method, headers: req.headers, body: parsed },
-          response,
-        );
-        return;
-      }
       const local = path === "/" ? "/index.html" : path;
       if (
         !/^\/(index\.html|admin\.(css|js)|catalog\.json|catalog\/[^.][\w/.-]*|fonts\/[\w.-]+|ui\/[\w.-]+|shared\/(languages|notice-body|legacy-save)\.js)$/.test(

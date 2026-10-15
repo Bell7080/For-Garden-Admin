@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node dev-server.js",
     "test": "node --test tests/*.test.js",
-    "check": "node --check admin.js && node --check api/translate.js",
+    "check": "node --check admin.js && node --check dev-server.js && node --check build.mjs",
     "build": "node build.mjs"
   },
   "engines": {

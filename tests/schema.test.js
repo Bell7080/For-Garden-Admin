@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
-test("Postgres migration: atomic save, language expansion, stale-editor rejection, source validation and leases", async () => {
+test("Postgres migration: atomic save, language expansion, stale-editor rejection, source validation", async () => {
   const db = new PGlite();
   try {
     await db.exec(`create role anon;create role authenticated;create role service_role;
@@ -13,7 +13,7 @@ test("Postgres migration: atomic save, language expansion, stale-editor rejectio
     await db.exec(
       await readFile(
         new URL(
-          "../supabase/migrations/20261016090000_notice_translation.sql",
+          "../supabase/migrations/20261017090000_notice_editor.sql",
           import.meta.url,
         ),
         "utf8",
@@ -97,63 +97,6 @@ test("Postgres migration: atomic save, language expansion, stale-editor rejectio
     await assert.rejects(
       save({ ...fields, slug: "denied" }, translations),
       /write_not_allowed/,
-    );
-    await db.exec("set test.can_write='yes'");
-    const hash = "a".repeat(64);
-    const claim = async (locale) =>
-      (
-        await db.query("select claim_notice_translation($1,$2,$3) result", [
-          created.id,
-          locale,
-          hash,
-        ])
-      ).rows[0].result;
-    assert.equal(await claim("en"), "claimed");
-    assert.equal(await claim("en"), "busy");
-    for (const locale of ["ja", "de", "ru"])
-      assert.equal(await claim(locale), "claimed");
-    assert.equal(await claim("vi"), "busy");
-    await db.query("select release_notice_translation($1,$2,$3)", [
-      created.id,
-      "en",
-      hash,
-    ]);
-    assert.equal(await claim("vi"), "claimed");
-    await db.exec(
-      await readFile(
-        new URL(
-          "../supabase/migrations/20261016210000_translation_budget.sql",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    );
-    const reserve = async (chars, limit = 100) =>
-      (
-        await db.query(
-          "select reserve_translation_characters($1,$2,$3) result",
-          ["azure", chars, limit],
-        )
-      ).rows[0].result;
-    assert.equal(await reserve(60), "reserved");
-    assert.equal(await reserve(40), "reserved");
-    assert.equal(await reserve(1), "quota");
-    assert.equal(
-      (
-        await db.query(
-          "select characters::int count from website_translation_usage",
-        )
-      ).rows[0].count,
-      100,
-    );
-    await assert.rejects(reserve(1, 2000001), /invalid_translation_budget/);
-    await db.exec(
-      "insert into website_translation_usage values('azure',(date_trunc('month',now() at time zone 'UTC')-interval '1 month')::date,2000000)",
-    );
-    assert.equal(
-      await reserve(1, 101),
-      "reserved",
-      "prior month usage does not consume the current month allowance",
     );
     assert(updated.updated_at);
   } finally {

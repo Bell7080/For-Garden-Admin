@@ -36,7 +36,7 @@
     <section id="login">
       <p class="eyebrow">AUTHORIZED ACCESS</p>
       <h1>정원의 소식을 관리하세요.</h1>
-      <p class="sub">공지 작성부터 게시 일정, 언어별 번역까지 한 곳에서.</p>
+      <p class="sub">공지 작성부터 게시 일정, 언어별 원고까지 한 곳에서.</p>
       <form class="card" id="form" autocomplete="on" novalidate>
         <h2>관리자 로그인</h2>
         <label for="email">이메일</label
@@ -70,7 +70,8 @@
       </header>
       <p class="schema-notice" id="schemaNotice" role="status" hidden>
         현재 기존 공지 저장 모드입니다. 한국어·영어·일본어 공지는 계속 관리할 수
-        있습니다. 12개 언어 자동 번역 기능은 준비 후 활성화됩니다.
+        있습니다. 추가 언어 작성과 동시 편집 보호는 DB 업데이트 후 사용할 수
+        있습니다.
       </p>
       <div class="stats" id="stats" aria-label="공지 현황"></div>
       <div class="app">
@@ -116,7 +117,7 @@
             <p class="eyebrow">GARDEN JOURNAL</p>
             <h2>다음 소식을 준비할 시간</h2>
             <p>보관함에서 공지를 선택하거나 새 공지를 작성하세요.</p>
-            <p class="hint">임시저장 → 미리보기 → 게시 설정 → 번역 확인</p>
+            <p class="hint">임시저장 → 미리보기 → 게시 설정</p>
           </section>
           <section class="card" id="editor" hidden>
             <div class="editor-heading">
@@ -171,11 +172,11 @@
                   <label for="sourceLocale">원문 언어</label
                   ><select id="sourceLocale"></select>
                 </div>
-                <div class="translation-policy">
+                <div class="language-policy">
                   <strong>원문만 작성해도 됩니다.</strong>
                   <p>
-                    나머지 11개 언어는 자동 번역합니다. 직접 작성한 번역은 항상
-                    우선합니다.
+                    다른 언어의 원고는 선택 입력입니다. 작성하지 않은 언어에는
+                    원문을 표시합니다.
                   </p>
                 </div>
               </div>
@@ -270,21 +271,6 @@
                 <option value="true">상단 고정 공지</option>
               </select>
               <p class="publish-summary" id="publishSummary"></p>
-            </div>
-            <div class="editor-section">
-              <div class="section-label">
-                <b>05</b>
-                <h3>번역 현황</h3>
-              </div>
-              <p class="hint">
-                원문 수정 시 이전 자동 번역은 만료됩니다. 미완료 언어는 독자가
-                열 때 다시 번역합니다.
-              </p>
-              <div id="translationGrid" class="translation-grid"></div>
-              <button class="btn ghost" id="retryTranslations" type="button">
-                미완료 번역 다시 시도
-              </button>
-              <p id="translationMsg" class="msg" role="status"></p>
             </div>
             <div class="save-bar">
               <button class="btn primary" id="save" type="button">

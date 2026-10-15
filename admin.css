@@ -437,17 +437,17 @@ label .hint {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
-.translation-policy {
+.language-policy {
   padding: 12px;
   border-left: 2px solid var(--yellow);
   margin-top: 12px;
   background: var(--paper);
   font-size: 12px;
 }
-.translation-policy strong {
+.language-policy strong {
   font-size: 13px;
 }
-.translation-policy p {
+.language-policy p {
   margin-top: 5px;
   color: var(--muted);
 }
@@ -505,27 +505,6 @@ label .hint {
   border-left: 2px solid var(--yellow);
   margin-top: 16px;
   font-size: 13px;
-}
-.translation-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin: 14px 0;
-}
-.translation-grid > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border: 1px solid var(--line);
-  padding: 8px;
-  font-size: 12px;
-}
-.translation-grid span {
-  color: var(--muted);
-}
-.translation-grid .complete {
-  color: var(--ok);
 }
 .save-bar {
   display: flex;
@@ -758,9 +737,6 @@ dialog .actions {
   }
   .row2 {
     grid-template-columns: 1fr;
-  }
-  .translation-grid {
-    grid-template-columns: 1fr 1fr;
   }
   .coverbox {
     flex-wrap: wrap;

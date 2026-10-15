@@ -13,4 +13,4 @@ for (const file of [
   await cp(file, `dist/${file}`, { recursive: true });
 for (const file of ["languages.js", "notice-body.js", "legacy-save.js"])
   await cp(`shared/${file}`, `dist/shared/${file}`);
-console.log("Static admin built in dist/; server functions remain in api/.");
+console.log("Static admin built in dist/.");

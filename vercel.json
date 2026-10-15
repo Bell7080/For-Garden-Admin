@@ -1,10 +1,5 @@
 {
   "framework": null,
-  "functions": {
-    "api/translate.js": {
-      "maxDuration": 60
-    }
-  },
   "headers": [
     {
       "source": "/(.*)",
