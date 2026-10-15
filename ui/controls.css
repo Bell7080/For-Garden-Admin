@@ -1,0 +1,95 @@
+.fg-native-select {
+  display: none !important;
+}
+.fg-select {
+  position: relative;
+  min-width: 0;
+  font-size: 14px;
+}
+.fg-select[hidden],
+.fg-select-menu[hidden] {
+  display: none !important;
+}
+.fg-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-line, #525965);
+  background: var(--ui-panel, #24282e);
+  color: var(--ui-ink, #f2f0ec);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.fg-select-trigger:after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2.5px solid currentColor;
+  border-bottom: 2.5px solid currentColor;
+  transform: translateY(-3px) rotate(45deg);
+  flex: none;
+}
+.fg-select-trigger[aria-expanded="true"]:after {
+  transform: translateY(2px) rotate(225deg);
+}
+.fg-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(320px, 90vw);
+  max-height: 320px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--ui-panel, #24282e);
+  border: 1px solid var(--ui-line, #525965);
+  box-shadow: 0 16px 40px #0004;
+  z-index: 100;
+  padding: 6px;
+}
+.fg-select-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 12px 14px;
+  text-align: left;
+  background: transparent;
+  color: var(--ui-ink, #f2f0ec);
+  font: inherit;
+  cursor: pointer;
+}
+.fg-select-menu button:hover,
+.fg-select-menu button.is-active {
+  background: var(--ui-hover, #3a404a);
+}
+.fg-select-menu button[aria-selected="true"] {
+  color: var(--ui-accent, #d8b978);
+  font-weight: 700;
+  box-shadow: inset 3px 0 var(--ui-accent, #d8b978);
+}
+.fg-select-trigger:focus-visible,
+.fg-select-menu button:focus-visible {
+  outline: 2px solid var(--ui-accent, #d8b978);
+  outline-offset: 3px;
+}
+.fg-select-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (forced-colors: active) {
+  .fg-select-menu,
+  .fg-select-trigger {
+    background: Canvas;
+    color: CanvasText;
+    border-color: ButtonText;
+  }
+  .fg-select-menu button[aria-selected="true"] {
+    outline: 2px solid Highlight;
+  }
+}

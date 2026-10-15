@@ -1,0 +1,17 @@
+{
+  "name": "for-garden-admin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "test": "node --test tests/*.test.js",
+    "check": "node --check admin.js && node --check api/translate.js",
+    "build": "node build.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10"
+  }
+}

@@ -1,84 +1,347 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow">
-<title>포가든 관리자</title>
-<link rel="stylesheet" href="/admin.css">
-</head><body>
-<section id="login">
-  <h1>포가든 관리자</h1><p class="sub">운영 도구 · 허가된 계정만 사용할 수 있습니다.</p>
-  <form class="card" id="form" autocomplete="on">
-    <label for="email">이메일</label><input id="email" type="email" required autocomplete="username">
-    <label for="pw">비밀번호</label><input id="pw" type="password" required autocomplete="current-password">
-    <div class="actions"><button class="btn primary" type="submit">로그인</button></div>
-    <p class="msg" id="loginMsg" role="status"></p>
-  </form>
-</section>
-
-<div id="app" hidden>
-  <header class="top"><strong>포가든 관리자</strong><span>공지 관리</span><span class="spacer"></span><span id="who"></span><button class="btn ghost" id="logout" type="button">로그아웃</button></header>
-  <div class="app">
-    <aside class="side">
-      <button class="btn primary" id="newNotice" type="button" style="width:100%">+ 새 공지</button>
-      <div class="filters">
-        <select id="fCat"><option value="">전체 분류</option><option value="notice">공지</option><option value="development">개발 소식</option><option value="event">이벤트</option></select>
-        <select id="fStatus"><option value="">전체 상태</option><option value="published">게시됨</option><option value="draft">임시저장</option></select>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="theme-color" content="#1a1d21" />
+    <script>
+      try {
+        var p = localStorage.getItem("fg-theme");
+        document.documentElement.dataset.theme =
+          p === "dark" || p === "light"
+            ? p
+            : matchMedia("(prefers-color-scheme:dark)").matches
+              ? "dark"
+              : "light";
+        document.documentElement.style.colorScheme =
+          document.documentElement.dataset.theme;
+      } catch (e) {}
+    </script>
+    <title>For Garden · 운영 콘솔</title>
+    <link rel="stylesheet" href="/admin.css" />
+    <link rel="stylesheet" href="/ui/controls.css" />
+  </head>
+  <body>
+    <header class="console-header">
+      <a class="console-brand" href="/">FOR GARDEN <span>OPERATIONS</span></a>
+      <div class="theme-control">
+        <select data-theme-select aria-label="화면 테마">
+          <option value="system">장치 설정에 맞춤</option>
+          <option value="dark">다크 모드</option>
+          <option value="light">라이트 모드</option>
+        </select>
       </div>
-      <input id="fText" placeholder="제목·주소 검색">
-      <div id="list"></div>
-    </aside>
-    <main class="main">
-      <section class="card" id="editor" hidden>
-        <div class="row2">
-          <div><label>분류</label><select id="category"><option value="notice">공지</option><option value="development">개발 소식</option><option value="event">이벤트</option></select></div>
-          <div><label>상태</label><select id="status"><option value="draft">임시저장</option><option value="published">게시</option></select></div>
-        </div>
-        <div class="row2">
-          <div><label>주소(slug) — 만든 뒤에는 바꿀 수 없음</label><input id="slug" maxlength="100" placeholder="영문 소문자·숫자·-"></div>
-          <div><label>게시 시각 (이 시각이 지나야 공개)</label><input id="publishedAt" type="datetime-local"></div>
-        </div>
-        <div class="row2">
-          <div><label>템플릿 (새 공지에서 본문 틀을 채움)</label><select id="template"><option value="plain">기본 공지</option><option value="update">업데이트 안내</option><option value="event">이벤트</option></select></div>
-          <div><label>상단 고정</label><select id="pinned"><option value="false">아니오</option><option value="true">예 (★ 목록 맨 위)</option></select></div>
-        </div>
-        <label>대표 이미지 (목록 썸네일 + 팝업 상단)</label>
-        <div class="coverbox"><img id="coverImg" alt="" hidden><button class="btn" id="pickCover" type="button">이미지 선택</button><button class="btn ghost" id="clearCover" type="button">제거</button></div>
-        <div class="tabs" id="langTabs"></div>
-        <div class="card" style="border-top-left-radius:0">
-          <label>제목</label><input id="title" maxlength="200">
-          <label>요약 (목록 아래 한 줄)</label><input id="summary">
-          <label>본문 — 빈 줄로 문단을 나누고, 이미지는 <code>![설명](https://…)</code> 한 줄</label>
-          <textarea id="body"></textarea>
-          <div class="toolbar"><button class="btn" id="insertImg" type="button">본문에 이미지 넣기</button></div>
-        </div>
+    </header>
+    <section id="login">
+      <p class="eyebrow">AUTHORIZED ACCESS</p>
+      <h1>정원의 소식을 관리하세요.</h1>
+      <p class="sub">공지 작성부터 게시 일정, 언어별 번역까지 한 곳에서.</p>
+      <form class="card" id="form" autocomplete="on" novalidate>
+        <h2>관리자 로그인</h2>
+        <label for="email">이메일</label
+        ><input
+          id="email"
+          type="email"
+          required
+          autocomplete="username"
+        /><label for="pw">비밀번호</label
+        ><input
+          id="pw"
+          type="password"
+          required
+          autocomplete="current-password"
+        />
         <div class="actions">
-          <button class="btn primary" id="save" type="button">저장</button>
-          <button class="btn" id="dup" type="button">복제</button>
-          <button class="btn danger" id="remove" type="button">삭제</button>
+          <button class="btn primary" type="submit">로그인</button>
         </div>
-        <p class="msg" id="msg" role="status"></p>
-      </section>
-      <section class="pv" id="preview" hidden>
-        <h3>미리보기 — 목록에서 보이는 모습</h3>
-        <div id="pvRow"></div>
-        <h3 style="margin-top:18px">미리보기 — 눌렀을 때 뜨는 팝업</h3>
-        <div class="dialog" id="pvDialog"></div>
-      </section>
-      <p id="empty" style="grid-column:1/-1;color:#72796b">왼쪽에서 공지를 고르거나 새 공지를 만드세요.</p>
-    </main>
-  </div>
-</div>
-
-<div class="modal" id="picker" hidden>
-  <div class="box">
-    <div class="head">
-      <button class="btn" data-tab="upload">업로드</button>
-      <button class="btn ghost" data-tab="recent">올린 이미지</button>
-      <button class="btn ghost" data-tab="game">포가든 원본</button>
-      <select id="gameGroup" hidden></select>
-      <span class="spacer"></span><button class="btn ghost" id="closePicker" type="button">닫기</button>
+        <p class="msg" id="loginMsg" role="status"></p>
+      </form>
+      <p class="hint">허가된 운영 계정만 접근할 수 있습니다.</p>
+    </section>
+    <div id="app" hidden>
+      <header class="top">
+        <div>
+          <p class="eyebrow">CONTENT DESK</p>
+          <h1>공지 관리</h1>
+        </div>
+        <span class="spacer"></span><span id="who"></span
+        ><button class="btn ghost" id="logout" type="button">로그아웃</button>
+      </header>
+      <p class="schema-notice" id="schemaNotice" role="status" hidden>
+        현재 기존 공지 저장 모드입니다. 한국어·영어·일본어 공지는 계속 관리할 수
+        있습니다. 12개 언어 자동 번역 기능은 준비 후 활성화됩니다.
+      </p>
+      <div class="stats" id="stats" aria-label="공지 현황"></div>
+      <div class="app">
+        <aside class="side">
+          <div class="side-heading">
+            <h2>공지 보관함</h2>
+            <button class="btn primary" id="newNotice" type="button">
+              + 새 공지
+            </button>
+          </div>
+          <label for="fText">공지 검색</label
+          ><input
+            id="fText"
+            type="search"
+            placeholder="제목 또는 주소로 검색"
+          />
+          <div class="filters">
+            <div>
+              <label for="fCat">분류</label
+              ><select id="fCat">
+                <option value="">전체 분류</option>
+                <option value="notice">운영 공지</option>
+                <option value="development">개발·업데이트</option>
+                <option value="event">이벤트</option>
+              </select>
+            </div>
+            <div>
+              <label for="fStatus">게시 상태</label
+              ><select id="fStatus">
+                <option value="">전체 상태</option>
+                <option value="published">게시 중</option>
+                <option value="scheduled">예약 게시</option>
+                <option value="draft">임시저장</option>
+              </select>
+            </div>
+          </div>
+          <p id="listCount" class="hint" role="status"></p>
+          <div id="list"></div>
+        </aside>
+        <main class="main">
+          <section id="empty" class="empty-state">
+            <span class="archive-mark" aria-hidden="true">01</span>
+            <p class="eyebrow">GARDEN JOURNAL</p>
+            <h2>다음 소식을 준비할 시간</h2>
+            <p>보관함에서 공지를 선택하거나 새 공지를 작성하세요.</p>
+            <p class="hint">임시저장 → 미리보기 → 게시 설정 → 번역 확인</p>
+          </section>
+          <section class="card" id="editor" hidden>
+            <div class="editor-heading">
+              <div>
+                <p class="eyebrow" id="editorMode">NEW ANNOUNCEMENT</p>
+                <h2 id="editorTitle">새 공지</h2>
+              </div>
+              <span class="save-state" id="saveState" role="status"
+                >저장 전</span
+              >
+            </div>
+            <div class="editor-section">
+              <div class="section-label">
+                <b>01</b>
+                <h3>기본 정보</h3>
+              </div>
+              <div class="row2">
+                <div>
+                  <label for="category">공지 분류</label
+                  ><select id="category">
+                    <option value="notice">운영 공지</option>
+                    <option value="development">개발·업데이트</option>
+                    <option value="event">이벤트</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="template">작성 템플릿</label
+                  ><select id="template">
+                    <option value="plain">일반 안내</option>
+                    <option value="update">업데이트 노트</option>
+                    <option value="event">이벤트 안내</option>
+                  </select>
+                </div>
+              </div>
+              <label for="slug"
+                >공지 주소
+                <span class="hint">최초 저장 후 고정됩니다.</span></label
+              ><input
+                id="slug"
+                maxlength="100"
+                placeholder="예: october-update"
+                spellcheck="false"
+              />
+            </div>
+            <div class="editor-section">
+              <div class="section-label">
+                <b>02</b>
+                <h3>본문과 언어</h3>
+              </div>
+              <div class="row2">
+                <div>
+                  <label for="sourceLocale">원문 언어</label
+                  ><select id="sourceLocale"></select>
+                </div>
+                <div class="translation-policy">
+                  <strong>원문만 작성해도 됩니다.</strong>
+                  <p>
+                    나머지 11개 언어는 자동 번역합니다. 직접 작성한 번역은 항상
+                    우선합니다.
+                  </p>
+                </div>
+              </div>
+              <div
+                class="tabs"
+                id="langTabs"
+                role="tablist"
+                aria-label="공지 작성 언어"
+              ></div>
+              <div id="languagePanel" role="tabpanel">
+                <p class="hint" id="languageStatus"></p>
+                <label for="title"
+                  >제목 <span id="titleCount" class="hint">0 / 200</span></label
+                ><input
+                  id="title"
+                  maxlength="200"
+                  placeholder="핵심 내용을 한 문장으로 알려주세요."
+                /><label for="summary">요약</label
+                ><input
+                  id="summary"
+                  maxlength="500"
+                  placeholder="목록에서 안내할 핵심 내용"
+                /><label for="body">본문</label>
+                <div class="writing-toolbar">
+                  <button class="btn ghost" id="insertHeading" type="button">
+                    소제목</button
+                  ><button class="btn ghost" id="insertList" type="button">
+                    목록</button
+                  ><button class="btn ghost" id="insertImg" type="button">
+                    이미지 삽입
+                  </button>
+                </div>
+                <textarea
+                  id="body"
+                  maxlength="50000"
+                  placeholder="공지 내용을 작성하세요."
+                ></textarea>
+                <p class="hint">
+                  ## 소제목 · - 목록 · 빈 줄로 문단 구분 · ![설명](https://…)
+                  이미지
+                </p>
+              </div>
+            </div>
+            <div class="editor-section">
+              <div class="section-label">
+                <b>03</b>
+                <h3>대표 이미지</h3>
+              </div>
+              <div class="coverbox">
+                <img id="coverImg" alt="대표 이미지 미리보기" hidden />
+                <div>
+                  <p class="hint">공지 목록과 상세 화면에 표시됩니다.</p>
+                  <div class="actions">
+                    <button class="btn" id="pickCover" type="button">
+                      이미지 선택</button
+                    ><button class="btn ghost" id="clearCover" type="button">
+                      제거
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="editor-section">
+              <div class="section-label">
+                <b>04</b>
+                <h3>게시 설정</h3>
+              </div>
+              <div class="row2">
+                <div>
+                  <label for="status">공개 상태</label
+                  ><select id="status">
+                    <option value="draft">임시저장 · 비공개</option>
+                    <option value="published">게시 · 지정 시각에 공개</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="publishedAt"
+                    >게시 일시 <span id="timeZone" class="hint"></span></label
+                  ><input
+                    id="publishedAt"
+                    type="text"
+                    placeholder="YYYY-MM-DD HH:mm"
+                    inputmode="text"
+                    spellcheck="false"
+                  />
+                  <p class="hint">미래 시각이면 자동으로 예약 게시됩니다.</p>
+                </div>
+              </div>
+              <label for="pinned">목록 상단 고정</label
+              ><select id="pinned">
+                <option value="false">일반 공지</option>
+                <option value="true">상단 고정 공지</option>
+              </select>
+              <p class="publish-summary" id="publishSummary"></p>
+            </div>
+            <div class="editor-section">
+              <div class="section-label">
+                <b>05</b>
+                <h3>번역 현황</h3>
+              </div>
+              <p class="hint">
+                원문 수정 시 이전 자동 번역은 만료됩니다. 미완료 언어는 독자가
+                열 때 다시 번역합니다.
+              </p>
+              <div id="translationGrid" class="translation-grid"></div>
+              <button class="btn ghost" id="retryTranslations" type="button">
+                미완료 번역 다시 시도
+              </button>
+              <p id="translationMsg" class="msg" role="status"></p>
+            </div>
+            <div class="save-bar">
+              <button class="btn primary" id="save" type="button">
+                임시저장</button
+              ><button class="btn" id="dup" type="button">복제</button
+              ><span class="spacer"></span
+              ><button class="btn danger" id="remove" type="button">
+                삭제
+              </button>
+            </div>
+            <p class="msg" id="msg" role="status"></p>
+          </section>
+          <section class="pv" id="preview" hidden>
+            <div class="preview-heading">
+              <p class="eyebrow">LIVE PREVIEW</p>
+              <h2>독자에게 보이는 모습</h2>
+              <p class="hint">현재 선택한 언어로 미리 봅니다.</p>
+            </div>
+            <h3>공지 목록</h3>
+            <div id="pvRow"></div>
+            <h3 class="preview-detail-label">공지 상세</h3>
+            <article class="dialog" id="pvDialog"></article>
+          </section>
+        </main>
+      </div>
     </div>
-    <div class="body" id="pickerBody"></div>
-  </div>
-</div>
-<script type="module" src="/admin.js"></script>
-</body></html>
+    <div
+      class="modal"
+      id="picker"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-label="공지 이미지 선택"
+    >
+      <div class="box">
+        <div class="head">
+          <button class="btn" data-tab="upload">업로드</button
+          ><button class="btn ghost" data-tab="recent">올린 이미지</button
+          ><button class="btn ghost" data-tab="game">게임 아트</button
+          ><select id="gameGroup" aria-label="게임 이미지 분류" hidden></select
+          ><span class="spacer"></span
+          ><button class="btn ghost" id="closePicker" type="button">
+            닫기
+          </button>
+        </div>
+        <div class="body" id="pickerBody"></div>
+      </div>
+    </div>
+    <dialog id="confirmDialog" aria-labelledby="confirmTitle">
+      <h2 id="confirmTitle">변경 확인</h2>
+      <p id="confirmText"></p>
+      <form method="dialog" class="actions">
+        <button class="btn" value="cancel" autofocus>취소</button
+        ><button class="btn primary" value="ok">계속</button>
+      </form>
+    </dialog>
+    <script type="module" src="/ui/controls.js"></script>
+    <script type="module" src="/admin.js"></script>
+  </body>
+</html>
