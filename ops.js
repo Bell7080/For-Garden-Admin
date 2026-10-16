@@ -74,10 +74,29 @@ const notify = (id, text, bad = false) => {
   el.textContent = text;
   el.className = bad ? "msg bad" : "msg";
 };
+// 꾸밈 셀렉트(ui/controls.js)는 값을 코드로 바꾸면 다시 맞춰 주어야 한다.
+const setVal = (el, value) => {
+  el.value = value;
+  el.dispatchEvent(new Event("fg:sync"));
+};
 async function assets() {
   assetsCache ||= await rest("reward_assets?select=asset,label,max_per_grant&enabled=eq.true&order=asset");
   return assetsCache;
 }
+const assetLabel = (a) => assetsCache?.find((x) => x.asset === a)?.label ?? a;
+const chips = (list) =>
+  (list || []).map((r) => `<span class="chip">${esc(assetLabel(r.asset))} <b>${num(r.amount)}</b></span>`).join("") || '<span class="hint">보상 없음</span>';
+const rewardPlain = (list) => (list || []).map((r) => `${assetLabel(r.asset)} ${num(r.amount)}`).join(", ") || "없음";
+
+// 왼쪽 목록 + 오른쪽 상세. 공지 화면과 같은 틀이다.
+function shell({ title, action = "", filters = "", hintId = "opsCount" }) {
+  $("opsBody").innerHTML = `<div class="app ops-app"><aside class="side"><div class="side-heading"><h2>${esc(title)}</h2>${action}</div>${filters}<p class="hint" id="${hintId}" role="status"></p><div id="opsList"></div></aside><main class="ops-main" id="opsDetail"></main></div>`;
+}
+const placeholder = (text) => `<div class="empty-state ops-empty"><span class="archive-mark" aria-hidden="true">·</span><p class="hint">${esc(text)}</p></div>`;
+function markSelected(id) {
+  $("opsList")?.querySelectorAll(".nrow").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
+}
+const fail = (box, e) => (box.innerHTML = `<section class="card"><p class="msg bad">${esc(e.message)}</p></section>`);
 
 // ───────── 보상 행 편집기 ─────────
 function rewardEditor(host, list) {
@@ -97,42 +116,61 @@ function rewardEditor(host, list) {
       .map((row) => ({ asset: row.querySelector("select").value, amount: Number(row.querySelector("input").value.replace(/,/g, "")) }))
       .filter((r) => r.amount > 0);
 }
-const rewardText = (list) =>
-  (list || []).map((r) => `${esc(assetsCache?.find((a) => a.asset === r.asset)?.label ?? r.asset)} ${num(r.amount)}`).join(" · ") || "보상 없음";
 
 // ───────── 문의·신고 ─────────
 async function viewTickets() {
-  $("opsBody").innerHTML = `<div class="ops-filters"><div><label for="tkStatus">상태</label><select id="tkStatus"><option value="">전체</option><option value="open">접수</option><option value="in_progress">처리 중</option><option value="answered">답변 완료</option><option value="closed">종료</option></select></div><div><label for="tkCat">분류</label><select id="tkCat"><option value="">전체</option><option value="inquiry">문의</option><option value="bug">버그</option><option value="report">신고</option><option value="other">기타</option></select></div></div><div class="ops-cols"><div><p class="hint" id="tkCount" role="status"></p><div id="tkList"></div></div><div class="card" id="tkDetail"><p class="hint">목록에서 문의를 선택하세요.</p></div></div>`;
+  shell({
+    title: "문의·신고",
+    filters: `<input id="tkQuery" placeholder="번호(#12) 또는 제목 검색" autocomplete="off" aria-label="문의 검색" /><div class="filters"><select id="tkStatus" aria-label="상태"><option value="">상태 전체</option><option value="open">접수</option><option value="in_progress">처리 중</option><option value="answered">답변 완료</option><option value="closed">종료</option></select><select id="tkCat" aria-label="분류"><option value="">분류 전체</option><option value="inquiry">문의</option><option value="bug">버그</option><option value="report">신고</option><option value="other">기타</option></select></div><select id="tkSource" aria-label="접수 경로"><option value="">경로 전체</option><option value="game">게임</option><option value="web">홈페이지</option></select>`,
+  });
+  $("opsDetail").innerHTML = placeholder("목록에서 문의를 선택하세요.");
   const load = async () => {
     const f = [];
-    if ($("tkStatus").value) f.push(`status=eq.${$("tkStatus").value}`);
-    if ($("tkCat").value) f.push(`category=eq.${$("tkCat").value}`);
+    for (const [id, col] of [["tkStatus", "status"], ["tkCat", "category"], ["tkSource", "source"]]) if ($(id).value) f.push(`${col}=eq.${$(id).value}`);
+    const q = $("tkQuery").value.trim();
+    if (/^#?\d{1,12}$/.test(q)) f.push(`ticket_no=eq.${q.replace("#", "")}`);
+    else if (q) f.push(`subject=ilike.*${encodeURIComponent(q.replace(/[*,()%]/g, ""))}*`);
     try {
       const rows = await rest(`support_tickets?select=id,ticket_no,source,category,subject,status,created_at&order=created_at.desc&limit=100${f.length ? "&" + f.join("&") : ""}`);
-      $("tkCount").textContent = `${rows.length}건`;
-      $("tkList").innerHTML = rows.map((t) => `<button class="nrow" data-id="${esc(t.id)}"><span class="tag ${t.status === "open" ? "scheduled" : t.status === "answered" || t.status === "closed" ? "pub" : ""}">${STATUS[t.status]}</span><b>#${t.ticket_no} ${esc(t.subject)}</b><span class="tag">${CATEGORY[t.category]}</span><small>${SOURCE[t.source]} · ${esc(dt(t.created_at))}</small></button>`).join("") || '<p class="hint">조건에 맞는 문의가 없습니다.</p>';
-      $("tkList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openTicket(b.dataset.id)));
+      $("opsCount").textContent = `${rows.length}건`;
+      $("opsList").innerHTML = rows.map((t) => `<button class="nrow" data-id="${esc(t.id)}"><span class="tag ${t.status === "open" ? "scheduled" : t.status === "answered" || t.status === "closed" ? "pub" : ""}">${STATUS[t.status]}</span><span class="tag">${CATEGORY[t.category]}</span><b>#${t.ticket_no} ${esc(t.subject)}</b><small>${SOURCE[t.source]} · ${esc(dt(t.created_at))}</small></button>`).join("") || '<p class="hint">조건에 맞는 문의가 없습니다.</p>';
+      $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openTicket(b.dataset.id)));
     } catch (e) {
-      $("tkCount").textContent = e.message;
+      $("opsCount").textContent = e.message;
     }
   };
-  $("tkStatus").onchange = load;
-  $("tkCat").onchange = load;
+  ["tkStatus", "tkCat", "tkSource"].forEach((id) => ($(id).onchange = load));
+  let timer;
+  $("tkQuery").oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(load, 300);
+  };
   await load();
 }
 async function openTicket(id) {
-  const box = $("tkDetail");
-  box.innerHTML = '<p class="hint">불러오는 중…</p>';
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
   try {
     const [[t], msgs] = await Promise.all([rest(`support_tickets?id=eq.${id}&select=*`), rest(`support_messages?ticket_id=eq.${id}&select=author_kind,body,created_at&order=id`)]);
     const [p] = t.player_id ? await rest(`players?id=eq.${t.player_id}&select=uid,nickname,status`) : [];
     const who = t.source === "web" ? `이메일 ${esc(t.contact_email)}` : `UID ${esc(p?.uid)} · ${esc(p?.nickname || "닉네임 없음")} · ${PLAYER_STATUS[p?.status] || ""}`;
-    box.innerHTML = `<p class="eyebrow">TICKET #${t.ticket_no}</p><h2>${esc(t.subject)}</h2><p class="hint">${SOURCE[t.source]} · ${CATEGORY[t.category]} · ${STATUS[t.status]} · ${esc(dt(t.created_at))}</p><p class="hint">${who}${t.reported_uid ? ` · 신고 대상 UID ${esc(t.reported_uid)}` : ""}${t.app_version ? ` · v${esc(t.app_version)} ${esc(t.platform || "")}` : ""}</p><div class="thread"><div class="bubble player"><b>접수 내용</b><p>${esc(t.body)}</p></div>${msgs.map((m) => `<div class="bubble ${m.author_kind}"><b>${m.author_kind === "staff" ? "운영팀" : "플레이어"} · ${esc(dt(m.created_at))}</b><p>${esc(m.body)}</p></div>`).join("")}</div>${t.source === "web" ? '<p class="hint">홈페이지 접수는 플레이어에게 자동 전달되지 않습니다. 기록해 둔 뒤 이메일로 직접 회신하세요.</p>' : ""}<label for="tkReply">답변</label><textarea id="tkReply" maxlength="4000" placeholder="플레이어에게 보일 답변을 작성하세요."></textarea><label for="tkNext">처리 후 상태</label><select id="tkNext"><option value="answered">답변 완료</option><option value="in_progress">처리 중</option><option value="closed">종료</option></select><div class="actions"><button class="btn primary" id="tkSend" type="button">답변 저장</button><button class="btn ghost" id="tkClose" type="button">답변 없이 종료</button></div><p class="msg" id="tkMsg" role="status"></p>`;
+    box.innerHTML = `<section class="card"><p class="eyebrow">TICKET #${t.ticket_no}</p><h2>${esc(t.subject)}</h2><p class="hint">${SOURCE[t.source]} · ${CATEGORY[t.category]} · ${STATUS[t.status]} · ${esc(dt(t.created_at))}</p><p class="hint">${who}${t.reported_uid ? ` · 신고 대상 UID ${esc(t.reported_uid)}` : ""}${t.app_version ? ` · v${esc(t.app_version)} ${esc(t.platform || "")}` : ""}</p><div class="thread"><div class="bubble player"><b>접수 내용</b><p>${esc(t.body)}</p></div>${msgs.map((m) => `<div class="bubble ${m.author_kind}"><b>${m.author_kind === "staff" ? "운영팀" : "플레이어"} · ${esc(dt(m.created_at))}</b><p>${esc(m.body)}</p></div>`).join("")}</div></section><section class="card">${t.source === "web" ? '<p class="hint">홈페이지 접수는 플레이어에게 자동 전달되지 않습니다. 기록해 둔 뒤 이메일로 직접 회신하세요.</p>' : ""}<label for="tkReply">답변</label><textarea id="tkReply" maxlength="4000" placeholder="플레이어에게 보일 답변을 작성하세요."></textarea><label for="tkNext">처리 후 상태</label><select id="tkNext"><option value="answered">답변 완료</option><option value="in_progress">처리 중</option><option value="closed">종료</option></select><div class="actions"><button class="btn primary" id="tkSend" type="button">답변 저장</button><button class="btn ghost" id="tkClose" type="button">답변 없이 종료</button></div><p class="msg" id="tkMsg" role="status"></p></section>`;
+    const refresh = async (text) => {
+      await openTicket(id);
+      if (text) notify("tkMsg", text);
+      const row = $("opsList").querySelector(`[data-id="${id}"]`);
+      if (row) {
+        const [n] = await rest(`support_tickets?id=eq.${id}&select=status`);
+        const tag = row.querySelector(".tag");
+        tag.textContent = STATUS[n.status];
+        tag.className = `tag ${n.status === "open" ? "scheduled" : n.status === "answered" || n.status === "closed" ? "pub" : ""}`;
+      }
+    };
     $("tkSend").onclick = async () => {
       try {
         await rpc("admin_reply_ticket", { p_id: id, p_body: $("tkReply").value, p_status: $("tkNext").value });
-        await openTicket(id);
-        notify("tkMsg", "답변을 저장했습니다.");
+        await refresh("답변을 저장했습니다.");
       } catch (e) {
         notify("tkMsg", e.message, true);
       }
@@ -141,19 +179,20 @@ async function openTicket(id) {
       if (!(await api.ask("이 문의를 답변 없이 종료할까요?"))) return;
       try {
         await rpc("admin_set_ticket_status", { p_id: id, p_status: "closed" });
-        await openTicket(id);
+        await refresh();
       } catch (e) {
         notify("tkMsg", e.message, true);
       }
     };
   } catch (e) {
-    box.innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+    fail(box, e);
   }
 }
 
 // ───────── 계정 ─────────
 async function viewPlayers() {
-  $("opsBody").innerHTML = `<form class="ops-search" id="plForm"><div><label for="plQuery">계정 검색</label><input id="plQuery" placeholder="UID · 닉네임 · 계정 ID" autocomplete="off" /></div><button class="btn primary" type="submit">검색</button></form><div class="ops-cols"><div><p class="hint" id="plCount" role="status"></p><div id="plList"></div></div><div class="card" id="plDetail"><p class="hint">계정을 검색해 선택하세요.</p></div></div>`;
+  shell({ title: "계정", filters: `<form class="ops-search" id="plForm"><input id="plQuery" placeholder="UID · 닉네임 · 계정 ID" autocomplete="off" aria-label="계정 검색" /><button class="btn primary" type="submit">검색</button></form><select id="plStatus" aria-label="상태"><option value="">상태 전체</option><option value="active">정상</option><option value="suspended">정지</option><option value="banned">영구 제한</option></select>` });
+  $("opsDetail").innerHTML = placeholder("계정을 검색해 선택하세요.");
   $("plForm").onsubmit = async (e) => {
     e.preventDefault();
     const q = $("plQuery").value.trim();
@@ -161,32 +200,35 @@ async function viewPlayers() {
     if (/^\d{1,15}$/.test(q)) filter = `uid=eq.${q}`;
     else if (/^[0-9a-f-]{36}$/i.test(q)) filter = `id=eq.${q}`;
     else if (q) filter = `nickname=ilike.*${encodeURIComponent(q.replace(/[*,()%]/g, ""))}*`;
+    if ($("plStatus").value) filter += `&status=eq.${$("plStatus").value}`;
     try {
       const rows = await rest(`players?select=id,uid,nickname,status,last_seen_at&limit=30&${filter}`);
-      $("plCount").textContent = `${rows.length}명`;
-      $("plList").innerHTML = rows.map((p) => `<button class="nrow" data-id="${esc(p.id)}"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span><b>UID ${esc(p.uid)} ${esc(p.nickname || "")}</b><small>마지막 접속 ${esc(dt(p.last_seen_at))}</small></button>`).join("") || '<p class="hint">검색 결과가 없습니다.</p>';
-      $("plList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openPlayer(b.dataset.id)));
+      $("opsCount").textContent = `${rows.length}명`;
+      $("opsList").innerHTML = rows.map((p) => `<button class="nrow" data-id="${esc(p.id)}"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span><b>UID ${esc(p.uid)} ${esc(p.nickname || "")}</b><small>마지막 접속 ${esc(dt(p.last_seen_at))}</small></button>`).join("") || '<p class="hint">검색 결과가 없습니다.</p>';
+      $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openPlayer(b.dataset.id)));
     } catch (err) {
-      $("plCount").textContent = err.message;
+      $("opsCount").textContent = err.message;
     }
   };
+  $("plStatus").onchange = () => $("plForm").requestSubmit();
   $("plForm").requestSubmit();
 }
 async function openPlayer(id) {
-  const box = $("plDetail");
-  box.innerHTML = '<p class="hint">불러오는 중…</p>';
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
   try {
     const list = await assets();
-    const [[p], held, ledger] = await Promise.all([
+    const staff = ["owner", "operator", "cs"].includes(api.role);
+    const [[p], held, ledger, tickets] = await Promise.all([
       rest(`players?id=eq.${id}&select=*`),
-      ["owner", "operator", "cs"].includes(api.role) ? rest(`player_assets?player_id=eq.${id}&select=asset,amount&order=asset`) : [],
-      ["owner", "operator", "cs"].includes(api.role) ? rest(`asset_ledger?player_id=eq.${id}&select=asset,delta,balance_after,reason,note,created_at&order=id.desc&limit=15`) : [],
+      staff ? rest(`player_assets?player_id=eq.${id}&select=asset,amount&order=asset`) : [],
+      staff ? rest(`asset_ledger?player_id=eq.${id}&select=asset,delta,balance_after,reason,note,created_at&order=id.desc&limit=15`) : [],
+      staff ? rest(`support_tickets?player_id=eq.${id}&select=ticket_no,subject,status&order=created_at.desc&limit=5`) : [],
     ]);
-    const label = (a) => list.find((x) => x.asset === a)?.label ?? a;
-    const canStatus = ["owner", "operator", "cs"].includes(api.role);
-    box.innerHTML = `<p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint">${PLAYER_STATUS[p.status]}${p.status_reason ? ` · ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">계정 ID ${esc(p.id)}</p><h3>보유 재화</h3><div class="stats">${held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(label(h.asset))}</span></div>`).join("") || '<p class="hint">서버가 기록한 재화가 없습니다.</p>'}</div><h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(label(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div>${canStatus ? `<h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각 <span class="hint">비우면 무기한</span></label><input id="plUntil" placeholder="YYYY-MM-DD HH:mm" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div>` : ""}${canWrite() ? `<h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}</option>`).join("")}</select></div><div><label for="adDelta">증감 수량 <span class="hint">차감은 -</span></label><input id="adDelta" inputmode="numeric" /></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
-    if (canStatus) {
-      $("plSt").value = p.status;
+    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화</h3><div class="stats">${held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("") || '<p class="hint">서버가 기록한 재화가 없습니다.</p>'}</div><h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각 <span class="hint">비우면 무기한</span></label><input id="plUntil" placeholder="YYYY-MM-DD HH:mm" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}</option>`).join("")}</select></div><div><label for="adDelta">증감 수량 <span class="hint">차감은 -</span></label><input id="adDelta" inputmode="numeric" /></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
+    if (staff) {
+      setVal($("plSt"), p.status);
       $("plApply").onclick = async () => {
         try {
           const until = parseLocal($("plUntil").value);
@@ -204,7 +246,7 @@ async function openPlayer(id) {
         try {
           const delta = Number($("adDelta").value.replace(/,/g, ""));
           if (!Number.isInteger(delta) || delta === 0) throw new Error("증감 수량을 정수로 입력하세요.");
-          if (!(await api.ask(`${label($("adAsset").value)} ${delta > 0 ? "+" : ""}${num(delta)}을(를) 적용할까요? 기록에 남습니다.`))) return;
+          if (!(await api.ask(`${assetLabel($("adAsset").value)} ${delta > 0 ? "+" : ""}${num(delta)}을(를) 적용할까요? 기록에 남습니다.`))) return;
           await rpc("admin_adjust_asset", { p_player: id, p_asset: $("adAsset").value, p_delta: delta, p_reason: $("adReason").value });
           await openPlayer(id);
           notify("plMsg", "조정했습니다.");
@@ -214,80 +256,182 @@ async function openPlayer(id) {
       };
     }
   } catch (e) {
-    box.innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+    fail(box, e);
   }
 }
 
 // ───────── 우편 ─────────
 async function viewMails() {
-  const list = await assets();
-  $("opsBody").innerHTML = `${canWrite() ? `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID <span class="hint">비우면 전체 발송</span></label><input id="mlTarget" inputmode="numeric" /></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select></div></div><label for="mlStart">발송 시각 <span class="hint">비우면 즉시 · YYYY-MM-DD HH:mm</span></label><input id="mlStart" placeholder="YYYY-MM-DD HH:mm" /><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>` : '<p class="hint">조회만 가능한 권한입니다.</p>'}<h2>발송 기록</h2><div id="mlList"></div>`;
-  let readRewards = () => [];
-  if (canWrite()) {
-    readRewards = rewardEditor($("mlRewards"), list);
-    $("mlSend").onclick = async () => {
-      try {
-        const uid = $("mlTarget").value.trim();
-        let target = null;
-        let who = "전체 플레이어";
-        if (uid) {
-          if (!/^\d{1,15}$/.test(uid)) throw new Error("UID는 숫자로 입력하세요.");
-          const [p] = await rest(`players?uid=eq.${uid}&select=id,nickname`);
-          if (!p) throw new Error("해당 UID의 계정이 없습니다.");
-          target = p.id;
-          who = `UID ${uid} ${p.nickname || ""}`;
-        }
-        const starts = parseLocal($("mlStart").value);
-        const base = starts ? new Date(starts) : new Date();
-        const expires = new Date(base.getTime() + Number($("mlDays").value) * 86400000).toISOString();
-        const rewards = readRewards();
-        if (!(await api.ask(`${who}에게 우편을 보낼까요?\n보상: ${rewards.map((r) => `${list.find((a) => a.asset === r.asset)?.label} ${num(r.amount)}`).join(", ") || "없음"}`))) return;
-        await rpc("admin_send_mail", { p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_target: target, p_starts: starts, p_expires: expires });
-        notify("mlMsg", "발송했습니다.");
-        $("mlTitle").value = "";
-        $("mlBody").value = "";
-        await loadMailList();
-      } catch (e) {
-        notify("mlMsg", e.message, true);
-      }
-    };
-  }
+  await assets();
+  shell({ title: "우편", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">새 우편</button>' : "", filters: `<select id="mlFilter" aria-label="상태"><option value="">상태 전체</option><option value="active">발송</option><option value="cancelled">취소</option></select>` });
+  $("opsDetail").innerHTML = placeholder(canWrite() ? "목록에서 우편을 선택하거나 새 우편을 작성하세요." : "목록에서 우편을 선택하세요.");
+  if (canWrite()) $("opsNew").onclick = composeMail;
+  $("mlFilter").onchange = loadMailList;
   await loadMailList();
 }
-async function loadMailList() {
+async function loadMailList(selectId) {
   try {
-    const rows = await rest("mails?select=id,title,rewards,target_player,status,starts_at,expires_at,created_at&order=created_at.desc&limit=50");
-    $("mlList").innerHTML = rows.map((m) => `<div class="nrow static"><span class="tag ${m.status === "active" ? "pub" : ""}">${m.status === "active" ? "발송" : "취소"}</span><span class="tag">${m.target_player ? "개인" : "전체"}</span><b>${esc(m.title)}</b><small>${rewardText(m.rewards)} · ${esc(dt(m.starts_at))} ~ ${esc(dt(m.expires_at))}</small>${canWrite() && m.status === "active" ? `<button class="btn ghost" data-cancel="${esc(m.id)}" type="button">발송 취소</button>` : ""}</div>`).join("") || '<p class="hint">기록이 없습니다.</p>';
-    $("mlList").querySelectorAll("[data-cancel]").forEach(
-      (b) =>
-        (b.onclick = async () => {
-          if (!(await api.ask("이 우편을 취소할까요? 아직 받지 않은 플레이어는 받을 수 없게 됩니다."))) return;
-          try {
-            await rpc("admin_cancel_mail", { p_id: b.dataset.cancel });
-            await loadMailList();
-          } catch (e) {
-            notify("mlMsg", e.message, true);
-          }
-        }),
-    );
+    const f = $("mlFilter")?.value;
+    const rows = await rest(`mails?select=id,title,rewards,target_player,status,starts_at,expires_at,created_at&order=created_at.desc&limit=60${f ? `&status=eq.${f}` : ""}`);
+    $("opsCount").textContent = `${rows.length}건`;
+    $("opsList").innerHTML = rows.map((m) => `<button class="nrow" data-id="${esc(m.id)}"><span class="tag ${m.status === "active" ? "pub" : ""}">${m.status === "active" ? "발송" : "취소"}</span><span class="tag">${m.target_player ? "개인" : "전체"}</span><b>${esc(m.title)}</b><small>${esc(dt(m.created_at))}</small></button>`).join("") || '<p class="hint">기록이 없습니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openMail(b.dataset.id)));
+    markSelected(selectId);
   } catch (e) {
-    $("mlList").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+    $("opsList").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
   }
+}
+async function openMail(id) {
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
+  try {
+    await assets();
+    const [[m], claims] = await Promise.all([rest(`mails?id=eq.${id}&select=*`), rest(`mail_claims?mail_id=eq.${id}&select=player_id&limit=1000`)]);
+    let target = "전체 플레이어";
+    if (m.target_player) {
+      const [p] = await rest(`players?id=eq.${m.target_player}&select=uid,nickname`);
+      target = `UID ${p?.uid ?? "?"} ${p?.nickname || ""}`;
+    }
+    box.innerHTML = `<section class="card"><p class="eyebrow">MAIL</p><h2>${esc(m.title)}</h2><p class="hint"><span class="tag ${m.status === "active" ? "pub" : ""}">${m.status === "active" ? "발송" : "취소"}</span> ${esc(target)} · ${esc(dt(m.starts_at))} ~ ${esc(dt(m.expires_at))}</p><p class="mail-body">${esc(m.body)}</p><h3>첨부 보상</h3><div class="chips">${chips(m.rewards)}</div><p class="hint">수령 ${num(claims.length)}${claims.length >= 1000 ? "명 이상" : "명"}</p>${canWrite() && m.status === "active" ? '<div class="actions"><button class="btn ghost" id="mlCancel" type="button">발송 취소</button></div>' : ""}<p class="msg" id="mlMsg" role="status"></p></section>`;
+    if ($("mlCancel"))
+      $("mlCancel").onclick = async () => {
+        if (!(await api.ask("이 우편을 취소할까요? 아직 받지 않은 플레이어는 받을 수 없게 됩니다."))) return;
+        try {
+          await rpc("admin_cancel_mail", { p_id: id });
+          await loadMailList(id);
+          await openMail(id);
+        } catch (e) {
+          notify("mlMsg", e.message, true);
+        }
+      };
+  } catch (e) {
+    fail(box, e);
+  }
+}
+async function composeMail() {
+  markSelected(null);
+  const list = await assets();
+  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID <span class="hint">비우면 전체 발송</span></label><input id="mlTarget" inputmode="numeric" /></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option></select></div></div><label for="mlStart">발송 시각 <span class="hint">비우면 즉시 · YYYY-MM-DD HH:mm</span></label><input id="mlStart" placeholder="YYYY-MM-DD HH:mm" /><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
+  const readRewards = rewardEditor($("mlRewards"), list);
+  $("mlSend").onclick = async () => {
+    try {
+      const uid = $("mlTarget").value.trim();
+      let target = null;
+      let who = "전체 플레이어";
+      if (uid) {
+        if (!/^\d{1,15}$/.test(uid)) throw new Error("UID는 숫자로 입력하세요.");
+        const [p] = await rest(`players?uid=eq.${uid}&select=id,nickname`);
+        if (!p) throw new Error("해당 UID의 계정이 없습니다.");
+        target = p.id;
+        who = `UID ${uid} ${p.nickname || ""}`;
+      }
+      const starts = parseLocal($("mlStart").value);
+      const base = starts ? new Date(starts) : new Date();
+      const expires = new Date(base.getTime() + Number($("mlDays").value) * 86400000).toISOString();
+      const rewards = readRewards();
+      if (!(await api.ask(`${who}에게 우편을 보낼까요?\n보상: ${rewardPlain(rewards)}`))) return;
+      await rpc("admin_send_mail", { p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_target: target, p_starts: starts, p_expires: expires });
+      await loadMailList();
+      $("opsDetail").innerHTML = `<section class="card"><p class="msg">발송했습니다.</p></section>`;
+    } catch (e) {
+      notify("mlMsg", e.message, true);
+    }
+  };
 }
 
 // ───────── 쿠폰 ─────────
 async function viewCoupons() {
+  await assets();
+  shell({ title: "쿠폰", action: '<button class="btn primary" id="opsNew" type="button">새 쿠폰</button>', filters: `<select id="cpFilter" aria-label="상태"><option value="">상태 전체</option><option value="active">사용 가능</option><option value="disabled">중지</option></select>` });
+  $("opsDetail").innerHTML = placeholder("목록에서 쿠폰을 선택하거나 새 쿠폰을 만드세요.");
+  $("opsNew").onclick = composeCoupon;
+  $("cpFilter").onchange = () => loadCouponList();
+  await loadCouponList();
+}
+const couponPeriod = (c) => `${esc(dt(c.starts_at))} ~ ${c.ends_at ? esc(dt(c.ends_at)) : "제한 없음"}`;
+async function loadCouponList(selectId) {
+  try {
+    const f = $("cpFilter")?.value;
+    const rows = await rest(`coupons?select=id,name,kind,rewards,starts_at,ends_at,max_redemptions,redeemed_count,status&order=created_at.desc&limit=60${f ? `&status=eq.${f}` : ""}`);
+    $("opsCount").textContent = `${rows.length}개`;
+    $("opsList").innerHTML = rows.map((c) => `<button class="nrow" data-id="${esc(c.id)}"><span class="tag ${c.status === "active" ? "pub" : ""}">${c.status === "active" ? "사용 가능" : "중지"}</span><span class="tag">${c.kind === "shared" ? "공용" : "일회용"}</span><b>${esc(c.name)}</b><small>사용 ${num(c.redeemed_count)}${c.max_redemptions ? ` / ${num(c.max_redemptions)}` : ""} · ${c.ends_at ? esc(dt(c.ends_at)) + " 종료" : "기한 없음"}</small></button>`).join("") || '<p class="hint">쿠폰이 없습니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openCoupon(b.dataset.id)));
+    markSelected(selectId);
+  } catch (e) {
+    $("opsList").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+  }
+}
+async function openCoupon(id, { created = false } = {}) {
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
+  try {
+    const [c] = await rest(`coupons?id=eq.${id}&select=*`);
+    const total = (await rest(`coupon_codes?coupon_id=eq.${id}&select=id,redeemed_by&limit=1000`));
+    const used = total.filter((x) => x.redeemed_by).length;
+    box.innerHTML = `<section class="card"><p class="eyebrow">COUPON · ${c.kind === "shared" ? "공용 코드" : "일회용 코드"}</p><h2>${esc(c.name)}</h2><p class="hint"><span class="tag ${c.status === "active" ? "pub" : ""}">${c.status === "active" ? "사용 가능" : "중지"}</span> ${couponPeriod(c)}</p><h3>보상</h3><div class="chips">${chips(c.rewards)}</div><p class="hint">${c.kind === "shared" ? `사용 ${num(c.redeemed_count)}${c.max_redemptions ? ` / ${num(c.max_redemptions)}` : " (총 횟수 제한 없음)"} · 1인 1회` : `코드 ${num(total.length)}개 중 ${num(used)}개 사용`}</p><div class="actions"><button class="btn" id="cpReveal" type="button">코드 보기</button><button class="btn ghost" id="cpToggle" type="button">${c.status === "active" ? "중지" : "다시 사용"}</button></div><p class="msg" id="cpMsg" role="status"></p><div id="cpCodesBox"></div></section>`;
+    $("cpToggle").onclick = async () => {
+      try {
+        await rpc("admin_set_coupon_status", { p_id: id, p_status: c.status === "active" ? "disabled" : "active" });
+        await loadCouponList(id);
+        await openCoupon(id);
+      } catch (e) {
+        notify("cpMsg", e.message, true);
+      }
+    };
+    const reveal = async () => {
+      try {
+        const rows = await rpc("admin_reveal_coupon_codes", { p_id: id });
+        const known = rows.filter((r) => r.code);
+        const unknown = rows.length - known.length;
+        $("cpCodesBox").innerHTML = `<div class="code-result"><p class="hint">열람은 감사 로그에 기록됩니다.${unknown ? ` 이전 방식으로 발급된 ${num(unknown)}개는 코드를 확인할 수 없습니다.` : ""}</p><ul class="code-list">${known.map((r) => `<li class="${r.used ? "used" : ""}"><code>${esc(r.code)}</code>${r.used ? `<small>사용됨 · ${esc(dt(r.used_at))}</small>` : ""}</li>`).join("")}</ul>${known.length ? '<div class="actions"><button class="btn" id="cpCopy" type="button">모두 복사</button><button class="btn ghost" id="cpCopyLeft" type="button">미사용만 복사</button></div>' : ""}</div>`;
+        const copy = async (items) => {
+          try {
+            await navigator.clipboard.writeText(items.map((r) => r.code).join("\n"));
+            notify("cpMsg", `${items.length}개를 복사했습니다.`);
+          } catch {
+            notify("cpMsg", "복사 권한이 없습니다. 코드를 직접 선택해 복사하세요.", true);
+          }
+        };
+        if ($("cpCopy")) {
+          $("cpCopy").onclick = () => copy(known);
+          $("cpCopyLeft").onclick = () => copy(known.filter((r) => !r.used));
+        }
+        $("cpReveal").textContent = "코드 숨기기";
+        $("cpReveal").onclick = () => {
+          $("cpCodesBox").innerHTML = "";
+          $("cpReveal").textContent = "코드 보기";
+          $("cpReveal").onclick = reveal;
+        };
+      } catch (e) {
+        notify("cpMsg", e.message, true);
+      }
+    };
+    $("cpReveal").onclick = reveal;
+    if (created) {
+      notify("cpMsg", "쿠폰을 만들었습니다.");
+      await reveal();
+    }
+  } catch (e) {
+    fail(box, e);
+  }
+}
+async function composeCoupon() {
+  markSelected(null);
   const list = await assets();
   const now = new Date();
-  $("opsBody").innerHTML = `<section class="card"><h2>새 쿠폰</h2><label for="cpName">쿠폰 이름 <span class="hint">운영자만 봅니다.</span></label><input id="cpName" maxlength="80" /><div class="row2"><div><label for="cpKind">종류</label><select id="cpKind"><option value="shared">공용 코드 (여러 명이 같은 코드, 1인 1회)</option><option value="single">일회용 코드 (코드마다 한 명)</option></select></div><div id="cpSharedBox"><label for="cpCode">공용 코드 <span class="hint">영문·숫자 6~32자</span></label><input id="cpCode" maxlength="40" autocomplete="off" spellcheck="false" /></div><div id="cpSingleBox" hidden><label for="cpCount">발급 수량 <span class="hint">1~1000</span></label><input id="cpCount" inputmode="numeric" value="100" /></div></div><label>보상</label><div id="cpRewards"></div><div class="row2"><div><label for="cpStart">시작 시각</label><input id="cpStart" value="${fmtLocal(now)}" /></div><div><label for="cpEnd">종료 시각</label><input id="cpEnd" value="${fmtLocal(new Date(now.getTime() + 30 * 86400000))}" /></div></div><div id="cpMaxBox"><label for="cpMax">총 사용 가능 수 <span class="hint">공용 코드만 · 비우면 제한 없음</span></label><input id="cpMax" inputmode="numeric" /></div><div class="actions"><button class="btn primary" id="cpCreate" type="button">쿠폰 만들기</button></div><p class="msg" id="cpMsg" role="status"></p><div id="cpResult" hidden class="code-result"></div></section><h2>쿠폰 목록</h2><div id="cpList"></div>`;
+  $("opsDetail").innerHTML = `<section class="card"><h2>새 쿠폰</h2><label for="cpName">쿠폰 이름 <span class="hint">운영자만 봅니다.</span></label><input id="cpName" maxlength="80" /><div class="row2"><div><label for="cpKind">종류</label><select id="cpKind"><option value="shared">공용 코드 (1인 1회)</option><option value="single">일회용 코드 (코드마다 한 명)</option></select></div><div id="cpSharedBox"><label for="cpCode">공용 코드 <span class="hint">영문·숫자 6~32자</span></label><input id="cpCode" maxlength="40" autocomplete="off" spellcheck="false" /></div><div id="cpSingleBox" hidden><label for="cpCount">발급 수량 <span class="hint">1~1000</span></label><input id="cpCount" inputmode="numeric" value="100" /></div></div><label>보상</label><div id="cpRewards"></div><div class="row2"><div><label for="cpStart">시작 시각</label><input id="cpStart" value="${fmtLocal(now)}" /></div><div><label for="cpEnd">종료 시각</label><input id="cpEnd" value="${fmtLocal(new Date(now.getTime() + 30 * 86400000))}" /><label class="check"><input type="checkbox" id="cpNoEnd" /> 기한 제한 없음</label></div></div><div id="cpMaxBox"><label for="cpMax">총 사용 가능 수 <span class="hint">공용 코드만 · 비우면 제한 없음</span></label><input id="cpMax" inputmode="numeric" /></div><div class="actions"><button class="btn primary" id="cpCreate" type="button">쿠폰 만들기</button></div><p class="msg" id="cpMsg" role="status"></p></section>`;
   const readRewards = rewardEditor($("cpRewards"), list);
   const sync = () => {
     const single = $("cpKind").value === "single";
     $("cpSharedBox").hidden = single;
     $("cpSingleBox").hidden = !single;
     $("cpMaxBox").hidden = single;
+    $("cpEnd").disabled = $("cpNoEnd").checked;
   };
   $("cpKind").onchange = sync;
+  $("cpNoEnd").onchange = sync;
   sync();
   $("cpCreate").onclick = async () => {
     try {
@@ -296,58 +440,24 @@ async function viewCoupons() {
       if (!rewards.length) throw new Error("보상을 하나 이상 입력하세요.");
       const max = $("cpMax").value.trim() ? Number($("cpMax").value) : null;
       if (!single && max !== null && (!Number.isInteger(max) || max < 1)) throw new Error("총 사용 가능 수는 1 이상의 정수여야 합니다.");
-      if (!(await api.ask(single ? `일회용 코드 ${$("cpCount").value}개를 만들까요?` : "공용 쿠폰을 만들까요? 만든 뒤 코드는 다시 볼 수 없습니다."))) return;
-      const r = await rpc("admin_create_coupon", { p_name: $("cpName").value, p_kind: $("cpKind").value, p_rewards: rewards, p_starts: parseLocal($("cpStart").value), p_ends: parseLocal($("cpEnd").value), p_max: single ? null : max, p_code: single ? null : $("cpCode").value, p_count: single ? Number($("cpCount").value) : null });
-      notify("cpMsg", "쿠폰을 만들었습니다.");
-      if (single) {
-        $("cpResult").hidden = false;
-        $("cpResult").innerHTML = `<b>일회용 코드 ${r.codes.length}개</b><p class="hint">이 화면을 벗어나면 다시 볼 수 없습니다. 지금 복사해 두세요.</p><textarea readonly rows="8" id="cpCodes">${esc(r.codes.join("\n"))}</textarea><div class="actions"><button class="btn" id="cpCopy" type="button">모두 복사</button></div>`;
-        $("cpCopy").onclick = async () => {
-          try {
-            await navigator.clipboard.writeText(r.codes.join("\n"));
-            notify("cpMsg", "복사했습니다.");
-          } catch {
-            $("cpCodes").select();
-            notify("cpMsg", "복사 권한이 없어 선택만 했습니다. 직접 복사하세요.", true);
-          }
-        };
-      } else {
-        $("cpResult").hidden = true;
-        $("cpCode").value = "";
-      }
-      await loadCouponList();
+      const ends = $("cpNoEnd").checked ? null : parseLocal($("cpEnd").value);
+      if (!$("cpNoEnd").checked && !ends) throw new Error("종료 시각을 입력하거나 '기한 제한 없음'을 선택하세요.");
+      if (!(await api.ask(single ? `일회용 코드 ${$("cpCount").value}개를 만들까요?` : "공용 쿠폰을 만들까요?"))) return;
+      const r = await rpc("admin_create_coupon", { p_name: $("cpName").value, p_kind: $("cpKind").value, p_rewards: rewards, p_starts: parseLocal($("cpStart").value), p_ends: ends, p_max: single ? null : max, p_code: single ? null : $("cpCode").value, p_count: single ? Number($("cpCount").value) : null });
+      await loadCouponList(r.id);
+      await openCoupon(r.id, { created: true });
     } catch (e) {
       notify("cpMsg", e.message, true);
     }
   };
-  await loadCouponList();
-}
-async function loadCouponList() {
-  try {
-    const rows = await rest("coupons?select=id,name,kind,rewards,starts_at,ends_at,max_redemptions,redeemed_count,status&order=created_at.desc&limit=50");
-    $("cpList").innerHTML = rows.map((c) => `<div class="nrow static"><span class="tag ${c.status === "active" ? "pub" : ""}">${c.status === "active" ? "사용 가능" : "중지"}</span><span class="tag">${c.kind === "shared" ? "공용" : "일회용"}</span><b>${esc(c.name)}</b><small>${rewardText(c.rewards)} · 사용 ${num(c.redeemed_count)}${c.max_redemptions ? ` / ${num(c.max_redemptions)}` : ""} · ${esc(dt(c.starts_at))} ~ ${esc(dt(c.ends_at))}</small><button class="btn ghost" data-toggle="${esc(c.id)}" data-to="${c.status === "active" ? "disabled" : "active"}" type="button">${c.status === "active" ? "중지" : "다시 사용"}</button></div>`).join("") || '<p class="hint">쿠폰이 없습니다.</p>';
-    $("cpList").querySelectorAll("[data-toggle]").forEach(
-      (b) =>
-        (b.onclick = async () => {
-          try {
-            await rpc("admin_set_coupon_status", { p_id: b.dataset.toggle, p_status: b.dataset.to });
-            await loadCouponList();
-          } catch (e) {
-            notify("cpMsg", e.message, true);
-          }
-        }),
-    );
-  } catch (e) {
-    $("cpList").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
-  }
 }
 
 // ───────── 운영 설정 ─────────
 async function viewConfig() {
   const [c] = await rest("app_config?select=*&id=eq.1");
   const ro = canWrite() ? "" : " disabled";
-  $("opsBody").innerHTML = `<section class="card"><h2>점검과 최소 버전</h2><p class="hint">점검 중에는 게임이 시작 화면에서 안내 문구를 보여 줍니다. 최소 버전보다 낮은 앱은 업데이트 안내를 받습니다.</p><label for="cfMaint">점검 상태</label><select id="cfMaint"${ro}><option value="false">정상 운영</option><option value="true">점검 중</option></select><label for="cfMsg">점검 안내 문구</label><textarea id="cfMsg" maxlength="500"${ro}>${esc(c.maintenance_message)}</textarea><label for="cfEnds">점검 종료 예정 <span class="hint">비우면 미정 · YYYY-MM-DD HH:mm</span></label><input id="cfEnds" value="${c.maintenance_ends_at ? fmtLocal(new Date(c.maintenance_ends_at)) : ""}"${ro} /><div class="row2"><div><label for="cfMin">최소 지원 버전</label><input id="cfMin" value="${esc(c.min_app_version)}" placeholder="0.0.0"${ro} /></div><div><label for="cfLatest">최신 버전</label><input id="cfLatest" value="${esc(c.latest_app_version)}" placeholder="0.0.0"${ro} /></div></div>${canWrite() ? '<div class="actions"><button class="btn primary" id="cfSave" type="button">저장</button></div>' : '<p class="hint">조회만 가능한 권한입니다.</p>'}<p class="msg" id="cfNote" role="status">마지막 수정 ${esc(dt(c.updated_at))}</p></section>`;
-  $("cfMaint").value = String(c.maintenance);
+  $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">LIVE OPS</p><h2>점검과 최소 버전</h2><p class="hint"><span class="tag ${c.maintenance ? "scheduled" : "pub"}">${c.maintenance ? "점검 중" : "정상 운영"}</span> 점검 중에는 게임이 시작 화면에서 안내 문구를 보여 줍니다. 최소 버전보다 낮은 앱은 업데이트 안내를 받습니다.</p><label for="cfMaint">점검 상태</label><select id="cfMaint"${ro}><option value="false">정상 운영</option><option value="true">점검 중</option></select><label for="cfMsg">점검 안내 문구</label><textarea id="cfMsg" maxlength="500"${ro}>${esc(c.maintenance_message)}</textarea><label for="cfEnds">점검 종료 예정 <span class="hint">비우면 미정 · YYYY-MM-DD HH:mm</span></label><input id="cfEnds" value="${c.maintenance_ends_at ? fmtLocal(new Date(c.maintenance_ends_at)) : ""}"${ro} /><div class="row2"><div><label for="cfMin">최소 지원 버전</label><input id="cfMin" value="${esc(c.min_app_version)}" placeholder="0.0.0"${ro} /></div><div><label for="cfLatest">최신 버전</label><input id="cfLatest" value="${esc(c.latest_app_version)}" placeholder="0.0.0"${ro} /></div></div>${canWrite() ? '<div class="actions"><button class="btn primary" id="cfSave" type="button">저장</button></div>' : '<p class="hint">조회만 가능한 권한입니다.</p>'}<p class="msg" id="cfNote" role="status">마지막 수정 ${esc(dt(c.updated_at))}</p></section></div>`;
+  setVal($("cfMaint"), String(c.maintenance));
   if (!canWrite()) return;
   $("cfSave").onclick = async () => {
     try {
@@ -356,6 +466,7 @@ async function viewConfig() {
       const on = $("cfMaint").value === "true";
       if (!(await api.ask(on ? "점검을 시작할까요? 모든 플레이어에게 점검 안내가 표시됩니다." : "설정을 저장할까요?"))) return;
       await rpc("admin_set_config", { p_maintenance: on, p_message: $("cfMsg").value, p_ends_at: parseLocal($("cfEnds").value), p_min_version: $("cfMin").value, p_latest_version: $("cfLatest").value });
+      await viewConfig();
       notify("cfNote", "저장했습니다.");
     } catch (e) {
       notify("cfNote", e.message, true);
@@ -364,9 +475,17 @@ async function viewConfig() {
 }
 
 // ───────── 감사 로그 ─────────
+const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정" };
 async function viewAudit() {
-  const rows = await rest("admin_audit_log?select=id,actor,action,target,detail,at&order=id.desc&limit=100");
-  $("opsBody").innerHTML = `<p class="hint">최근 100건 · 소유자만 볼 수 있습니다.</p>${rows.map((r) => `<div class="nrow static"><span class="tag">${esc(r.action)}</span><b>${esc(r.target)}</b><small>${esc(dt(r.at))} · 담당 ${esc(String(r.actor || "").slice(0, 8))}</small><small class="detail">${esc(JSON.stringify(r.detail || {})).slice(0, 300)}</small></div>`).join("") || '<p class="hint">기록이 없습니다.</p>'}`;
+  const rows = await rest("admin_audit_log?select=id,actor,action,target,detail,at&order=id.desc&limit=200");
+  const actions = [...new Set(rows.map((r) => r.action))];
+  $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">SECURITY</p><h2>감사 로그</h2><p class="hint">최근 200건 · 소유자만 볼 수 있습니다.</p><select id="auFilter" aria-label="작업 종류"><option value="">작업 전체</option>${actions.map((a) => `<option value="${esc(a)}">${esc(AUDIT_LABEL[a] || a)}</option>`).join("")}</select><div id="auList"></div></section></div>`;
+  const draw = () => {
+    const f = $("auFilter").value;
+    $("auList").innerHTML = rows.filter((r) => !f || r.action === f).map((r) => `<div class="nrow static"><span class="tag">${esc(AUDIT_LABEL[r.action] || r.action)}</span><b>${esc(r.target)}</b><small>${esc(dt(r.at))} · 담당 ${esc(String(r.actor || "").slice(0, 8))}</small><small class="detail">${esc(JSON.stringify(r.detail || {})).slice(0, 300)}</small></div>`).join("") || '<p class="hint">기록이 없습니다.</p>';
+  };
+  $("auFilter").onchange = draw;
+  draw();
 }
 
 const RENDER = { tickets: viewTickets, players: viewPlayers, mails: viewMails, coupons: viewCoupons, config: viewConfig, audit: viewAudit };
@@ -384,11 +503,11 @@ export async function openView(id) {
     b.setAttribute("aria-selected", String(b.dataset.view === id));
   });
   if (id === "notice") return;
-  $("opsBody").innerHTML = '<p class="hint">불러오는 중…</p>';
+  $("opsBody").innerHTML = '<p class="hint ops-loading">불러오는 중…</p>';
   try {
     await RENDER[id]();
   } catch (e) {
-    if (current === id) $("opsBody").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+    if (current === id) $("opsBody").innerHTML = `<p class="msg bad ops-loading">${esc(e.message)}</p>`;
   }
 }
 

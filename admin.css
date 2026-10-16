@@ -890,3 +890,20 @@ input::file-selector-button {
 .bubble.staff { justify-self: end; border-color: var(--yellow); }
 .code-result { padding: 14px; border: 1px dashed var(--yellow); background: var(--paper); font-family: ui-monospace, monospace; font-size: 15px; line-height: 1.9; overflow-wrap: anywhere; user-select: all; }
 .ledger { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+
+/* 운영 탭: 공지와 같은 왼쪽 목록 + 오른쪽 상세 틀 */
+.ops-app { min-height: calc(100vh - 120px); }
+.ops-main { padding: 24px; display: grid; gap: 16px; align-content: start; min-width: 0; }
+.ops-single { max-width: 760px; margin: 0 auto; padding: 24px; display: grid; gap: 16px; }
+.ops-main .stats { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); margin: 0; }
+.ops-empty, .ops-loading { color: var(--muted); padding: 40px 0; text-align: center; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-block; white-space: nowrap; padding: 3px 9px; border: 1px solid var(--line); background: var(--card); font-size: 13px; }
+.nrow b, .nrow small, .tag, label, .stat span, .chip { word-break: keep-all; overflow-wrap: break-word; }
+.tag { white-space: nowrap; }
+.reward-row select { min-width: 150px; }
+.code-list { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; display: grid; gap: 4px; max-height: 320px; overflow: auto; padding: 8px; border: 1px solid var(--line); background: var(--card); }
+.code-list .used { opacity: .45; text-decoration: line-through; }
+.mail-body { white-space: pre-wrap; word-break: keep-all; overflow-wrap: break-word; }
+.check { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+@media (max-width: 860px) { .ops-app { grid-template-columns: 1fr; } }
