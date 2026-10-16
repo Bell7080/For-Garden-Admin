@@ -1,6 +1,7 @@
 import { saveLegacyNotice } from "./shared/legacy-save.js";
 import { languages as LOCALES } from "./shared/languages.js";
 import { renderBody } from "./shared/notice-body.js";
+import { mountOps, resetOps } from "./ops.js";
 // 공개(publishable) 키만 사용한다. service_role 키는 이 저장소에 절대 넣지 않는다.
 // 토큰은 메모리에만 둔다(새로고침하면 다시 로그인). 권한은 DB의 RLS가 최종 판단한다.
 const BASE = "https://rscxzfdnbdmftortrcqt.supabase.co";
@@ -172,12 +173,12 @@ $("form").addEventListener("submit", async (e) => {
       email: $("email").value,
     };
     $("pw").value = "";
-    const a = await rest("rpc/is_admin", { method: "POST", json: {} });
-    if (a !== true) {
+    // is_admin 함수는 API에 노출하지 않는다. 자기 역할 행이 보이는지가 곧 권한 확인이다(RLS).
+    const roles = await rest("admin_roles?select=role");
+    if (!Array.isArray(roles) || !roles.length) {
       session = null;
       throw new Error("이 계정은 관리자 권한이 없습니다.");
     }
-    const roles = await rest("admin_roles?select=role");
     role =
       roles.find((r) => ["owner", "operator"].includes(r.role))?.role ??
       roles[0]?.role ??
@@ -187,6 +188,7 @@ $("form").addEventListener("submit", async (e) => {
     $("app").hidden = false;
     $("who").textContent = `${session.email} · ${role}`;
     await loadList();
+    await mountOps({ call, ask, esc, role });
   } catch (err) {
     $("loginMsg").textContent = err.message;
     $("loginMsg").className = "msg bad";
@@ -199,6 +201,7 @@ function logout() {
   dirty = false;
   editGeneration++;
   role = "";
+  resetOps();
   $("app").hidden = true;
   $("login").hidden = false;
   $("editor").hidden = true;

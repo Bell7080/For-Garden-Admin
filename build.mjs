@@ -5,6 +5,7 @@ for (const file of [
   "index.html",
   "admin.css",
   "admin.js",
+  "ops.js",
   "catalog.json",
   "catalog",
   "fonts",

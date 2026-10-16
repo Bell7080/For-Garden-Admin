@@ -11,7 +11,7 @@ create or replace function public.save_website_notice(p_notice jsonb,p_translati
 returns jsonb language plpgsql security invoker set search_path='' as $$
 declare target uuid; stamp timestamptz:=clock_timestamp(); item jsonb; source text;
 begin
- if not public.admin_can(array['owner','operator']) then raise exception 'write_not_allowed' using errcode='42501'; end if;
+ if not private.admin_can(array['owner','operator']) then raise exception 'write_not_allowed' using errcode='42501'; end if;
  source:=coalesce(p_notice->>'source_locale','ko');
  if jsonb_typeof(p_translations)<>'array' or jsonb_array_length(p_translations)>30 then raise exception 'invalid_translations'; end if;
  if not exists(select 1 from jsonb_array_elements(p_translations) t where t->>'locale'=source and length(trim(t->>'title'))>0 and length(trim(t->>'body'))>0) then raise exception 'source_required'; end if;
