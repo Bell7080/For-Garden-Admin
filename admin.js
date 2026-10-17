@@ -4,8 +4,8 @@ import { renderBody } from "./shared/notice-body.js";
 import { mountOps, resetOps } from "./ops.js";
 // 공개(publishable) 키만 사용한다. service_role 키는 이 저장소에 절대 넣지 않는다.
 // 토큰은 메모리에만 둔다(새로고침하면 다시 로그인). 권한은 DB의 RLS가 최종 판단한다.
-const BASE = "https://rscxzfdnbdmftortrcqt.supabase.co";
-const KEY = "sb_publishable_6GAse3Mlp_cQGukyOiLI7w_tfd4nZDH";
+const BASE = "https://udujahnlyhedlrfbaaow.supabase.co";
+const KEY = "sb_publishable_JBBgVvVIKSyE6n3jdo9Bwg_Z3peap8U";
 const BUCKET = "notice-images";
 const GAME_ORIGIN = "https://forgarden.vercel.app";
 const CATEGORY = { notice: "공지", development: "개발 소식", event: "이벤트" };
