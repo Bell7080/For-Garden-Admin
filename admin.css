@@ -907,3 +907,260 @@ input::file-selector-button {
 .mail-body { white-space: pre-wrap; word-break: keep-all; overflow-wrap: break-word; }
 .check { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 @media (max-width: 860px) { .ops-app { grid-template-columns: 1fr; } }
+
+/* ───────── 날짜·시간 선택기 (ui/datetime.js) ───────── */
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.55;
+}
+.fg-dt {
+  position: relative;
+  min-width: 0;
+}
+.fg-dt input[readonly] {
+  cursor: pointer;
+  padding-right: 44px;
+  font-variant-numeric: tabular-nums;
+}
+.fg-dt input:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.fg-dt-icon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 42px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.fg-dt input:disabled ~ .fg-dt-icon {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.fg-dt-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 120;
+  width: min(336px, calc(100vw - 16px));
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 16px 40px #0005;
+  display: grid;
+  gap: 10px;
+}
+.fg-dt-pop.up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.fg-dt-head {
+  display: grid;
+  grid-template-columns: 38px 1fr 38px auto;
+  align-items: center;
+  gap: 4px;
+}
+.fg-dt-title {
+  text-align: center;
+  font-size: 15px;
+}
+.fg-dt-nav,
+.fg-dt-today,
+.fg-dt-chip,
+.fg-dt-clear,
+.fg-dt-cancel,
+.fg-dt-apply {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+}
+.fg-dt-nav {
+  font-size: 20px;
+  line-height: 1;
+}
+.fg-dt-today,
+.fg-dt-chip {
+  padding: 0 10px;
+}
+.fg-dt-nav:hover,
+.fg-dt-today:hover,
+.fg-dt-chip:hover,
+.fg-dt-cancel:hover {
+  border-color: var(--yellow);
+  background: var(--ui-hover);
+}
+.fg-dt-week,
+.fg-dt-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.fg-dt-week span {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+.fg-dt-week .sun,
+.fg-dt-day:nth-child(7n + 1) {
+  color: var(--bad);
+}
+.fg-dt-week .sat,
+.fg-dt-day:nth-child(7n) {
+  color: #7fb2e5;
+}
+:root[data-theme="light"] .fg-dt-week .sat,
+:root[data-theme="light"] .fg-dt-day:nth-child(7n) {
+  color: #2a5f98;
+}
+.fg-dt-day {
+  aspect-ratio: 1;
+  min-height: 36px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.fg-dt-day.dim {
+  opacity: 0.38;
+}
+.fg-dt-day:hover:not(:disabled) {
+  background: var(--ui-hover);
+}
+.fg-dt-day.today {
+  border-color: var(--yellow);
+}
+.fg-dt-day.on,
+.fg-dt-day.on:hover {
+  background: #d8b978;
+  border-color: #d8b978;
+  color: #1a1d21;
+  font-weight: 800;
+  opacity: 1;
+}
+.fg-dt-day:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+.fg-dt-time {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.fg-dt-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+.fg-wheels {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+}
+.fg-wheel {
+  width: 74px;
+  height: 108px; /* 세 칸이 보인다 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  padding: 36px 0;
+  position: relative;
+  z-index: 1;
+  mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent);
+}
+.fg-wheel::-webkit-scrollbar {
+  display: none;
+}
+.fg-wheel-item {
+  display: block;
+  width: 100%;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  scroll-snap-align: center;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.fg-wheel-item.is-on {
+  color: var(--ink);
+  font-weight: 800;
+}
+.fg-wheel-colon {
+  font-size: 20px;
+  font-weight: 800;
+  z-index: 1;
+}
+.fg-wheel-band {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 36px;
+  height: 36px;
+  border-top: 2px solid var(--yellow);
+  border-bottom: 2px solid var(--yellow);
+  background: #d8b97814;
+  pointer-events: none;
+}
+.fg-dt-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fg-dt-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.fg-dt-readout {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fg-dt-clear {
+  color: var(--bad);
+  padding: 0 10px;
+}
+.fg-dt-cancel,
+.fg-dt-apply {
+  padding: 0 14px;
+}
+.fg-dt-apply {
+  background: #d8b978;
+  border-color: #d8b978;
+  color: #1a1d21;
+}
+.fg-dt-apply:hover {
+  background: #e9cd93;
+}
+.fg-dt button:focus-visible,
+.fg-dt-pop button:focus-visible,
+.fg-wheel:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fg-wheel {
+    scroll-behavior: auto;
+  }
+}

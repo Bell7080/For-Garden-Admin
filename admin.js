@@ -2,6 +2,7 @@ import { saveLegacyNotice } from "./shared/legacy-save.js";
 import { languages as LOCALES } from "./shared/languages.js";
 import { renderBody } from "./shared/notice-body.js";
 import { mountOps, resetOps } from "./ops.js";
+import { enhanceDateTimes } from "./ui/datetime.js";
 // 공개(publishable) 키만 사용한다. service_role 키는 이 저장소에 절대 넣지 않는다.
 // 토큰은 메모리에만 둔다(새로고침하면 다시 로그인). 권한은 DB의 RLS가 최종 판단한다.
 const BASE = "https://udujahnlyhedlrfbaaow.supabase.co";
@@ -64,6 +65,7 @@ $("sourceLocale").innerHTML = LOCALES.map(
   ([id, name]) => `<option value="${id}" lang="${id}">${name}</option>`,
 ).join("");
 $("timeZone").textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
+enhanceDateTimes();
 function ask(message) {
   const dialog = $("confirmDialog");
   $("confirmText").textContent = message;
@@ -555,7 +557,7 @@ function validate() {
   )
     return "원문 언어의 제목과 본문을 입력해 주세요.";
   if (cur.invalidDate)
-    return "게시 일시는 YYYY-MM-DD HH:mm 형식으로 입력해 주세요.";
+    return "게시 일시를 선택해 주세요.";
   return "";
 }
 $("save").onclick = async () => {

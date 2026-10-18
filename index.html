@@ -260,8 +260,10 @@
                   ><input
                     id="publishedAt"
                     type="text"
-                    placeholder="YYYY-MM-DD HH:mm"
-                    inputmode="text"
+                    data-datetime
+                    data-presets="now,+1h,tomorrow9,nextMonday9"
+                    data-empty="게시 일시를 고르세요"
+                    aria-label="게시 일시"
                     spellcheck="false"
                   />
                   <p class="hint">미래 시각이면 자동으로 예약 게시됩니다.</p>
