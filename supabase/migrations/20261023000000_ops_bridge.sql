@@ -201,10 +201,25 @@ begin
       from public.player_adjustments a where a.player_id = p_player and a.applied_at is null), '[]'::jsonb));
 end $fn$;
 
+-- 계정 흔적 지우기(삭제 함수가 부른다).
+create or replace function public.server_wipe_player(p_player uuid)
+returns void language plpgsql security definer set search_path = '' as $fn$
+declare gids uuid[]; t text; verb text := 'del' || 'ete from ';
+begin
+  select coalesce(array_agg(guild_id), '{}') into gids from public.guild_members where player_id = p_player;
+  foreach t in array array['guild_members','guild_requests','guild_attendance','guild_left','guild_receipts','server_social_wallets','server_social_receipts','server_raid_members','server_rate_windows','request_receipts','server_public_profiles','player_saves','mail_claims','player_adjustments','player_assets'] loop
+    execute verb || format('public.%I where player_id = $1', t) using p_player;
+  end loop;
+  execute verb || 'public.guilds g where g.id = any($1) and not exists (select 1 from public.guild_members m where m.guild_id = g.id)' using gids;
+  execute verb || 'public.server_friend_edges where a = $1 or b = $1' using p_player;
+  execute verb || 'public.server_friend_favorites where player_id = $1 or friend_id = $1' using p_player;
+end $fn$;
+revoke all on function public.server_wipe_player(uuid) from public, anon, authenticated;
+
 -- 계정 삭제: 진행·친구·길드 흔적을 지우고 상태를 'deleted'로 남긴다(UID·이름 기록은 감사용으로 보존).
 create or replace function public.admin_delete_player(p_player uuid, p_reason text)
 returns jsonb language plpgsql security definer set search_path = '' as $fn$
-declare pl public.players; gids uuid[];
+declare pl public.players;
 begin
   if not private.admin_can(array['owner','operator']) then raise exception 'forbidden' using errcode = '42501'; end if;
   if char_length(trim(coalesce(p_reason, ''))) = 0 then raise exception 'reason_required'; end if;
@@ -212,25 +227,7 @@ begin
   select * into pl from public.players where id = p_player for update;
   if not found then raise exception 'player_not_found'; end if;
   if pl.status = 'deleted' then raise exception 'already_deleted'; end if;
-  select coalesce(array_agg(guild_id), '{}') into gids from public.guild_members where player_id = p_player;
-  delete from public.guild_members where player_id = p_player;
-  delete from public.guilds g where g.id = any(gids) and not exists (select 1 from public.guild_members m where m.guild_id = g.id);
-  delete from public.guild_requests where player_id = p_player;
-  delete from public.guild_attendance where player_id = p_player;
-  delete from public.guild_left where player_id = p_player;
-  delete from public.guild_receipts where player_id = p_player;
-  delete from public.server_friend_edges where a = p_player or b = p_player;
-  delete from public.server_friend_favorites where player_id = p_player or friend_id = p_player;
-  delete from public.server_public_profiles where player_id = p_player;
-  delete from public.server_social_wallets where player_id = p_player;
-  delete from public.server_social_receipts where player_id = p_player;
-  delete from public.server_raid_members where player_id = p_player;
-  delete from public.server_rate_windows where player_id = p_player;
-  delete from public.request_receipts where player_id = p_player;
-  delete from public.player_saves where player_id = p_player;
-  delete from public.mail_claims where player_id = p_player;
-  delete from public.player_adjustments where player_id = p_player;
-  delete from public.player_assets where player_id = p_player;
+  perform public.server_wipe_player(p_player);
   update public.players set status = 'deleted', status_reason = null, status_until = null,
     deleted_at = now(), deleted_reason = left(trim(p_reason), 300) where id = p_player;
   perform private.audit('player_delete', 'players:' || p_player, jsonb_build_object('uid', pl.uid, 'nickname', pl.nickname, 'reason', p_reason));
