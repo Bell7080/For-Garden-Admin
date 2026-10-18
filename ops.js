@@ -2,7 +2,8 @@
 // 여기서 버튼을 숨기는 것은 편의일 뿐이고, 권한의 최종 판단은 RLS와 함수가 한다.
 const STATUS = { open: "접수", in_progress: "처리 중", answered: "답변 완료", closed: "종료" };
 const CATEGORY = { inquiry: "문의", bug: "버그", report: "신고", other: "기타" };
-const PLAYER_STATUS = { active: "정상", suspended: "정지", banned: "영구 제한" };
+const PLAYER_STATUS = { active: "정상", suspended: "정지", banned: "영구 제한", deleted: "삭제됨" };
+const prevNames = (p) => (Array.isArray(p.nickname_history) ? p.nickname_history.map((h) => h.name).filter(Boolean).reverse() : []);
 const SOURCE = { game: "게임", web: "홈페이지" };
 const ERRORS = {
   forbidden: "이 작업을 할 권한이 없습니다.",
@@ -191,7 +192,7 @@ async function openTicket(id) {
 
 // ───────── 계정 ─────────
 async function viewPlayers() {
-  shell({ title: "계정", filters: `<form class="ops-search" id="plForm"><input id="plQuery" placeholder="UID · 닉네임 · 계정 ID" autocomplete="off" aria-label="계정 검색" /><button class="btn primary" type="submit">검색</button></form><select id="plStatus" aria-label="상태"><option value="">상태 전체</option><option value="active">정상</option><option value="suspended">정지</option><option value="banned">영구 제한</option></select>` });
+  shell({ title: "계정", filters: `<form class="ops-search" id="plForm"><input id="plQuery" placeholder="UID · 닉네임(이전 이름 포함) · 계정 ID" autocomplete="off" aria-label="계정 검색" /><button class="btn primary" type="submit">검색</button></form><select id="plStatus" aria-label="상태"><option value="">상태 전체</option><option value="active">정상</option><option value="suspended">정지</option><option value="banned">영구 제한</option><option value="deleted">삭제됨</option></select>` });
   $("opsDetail").innerHTML = placeholder("계정을 검색해 선택하세요.");
   $("plForm").onsubmit = async (e) => {
     e.preventDefault();
@@ -199,12 +200,15 @@ async function viewPlayers() {
     let filter = "order=created_at.desc";
     if (/^\d{1,15}$/.test(q)) filter = `uid=eq.${q}`;
     else if (/^[0-9a-f-]{36}$/i.test(q)) filter = `id=eq.${q}`;
-    else if (q) filter = `nickname=ilike.*${encodeURIComponent(q.replace(/[*,()%]/g, ""))}*`;
+    else if (q) {
+      const term = encodeURIComponent(q.replace(/[*,()%]/g, "").toLowerCase());
+      filter = `or=(nickname.ilike.*${term}*,search_names.ilike.*${term}*)`;
+    }
     if ($("plStatus").value) filter += `&status=eq.${$("plStatus").value}`;
     try {
-      const rows = await rest(`players?select=id,uid,nickname,status,last_seen_at&limit=30&${filter}`);
+      const rows = await rest(`players?select=id,uid,nickname,status,last_seen_at,level,nickname_history&limit=30&${filter}`);
       $("opsCount").textContent = `${rows.length}명`;
-      $("opsList").innerHTML = rows.map((p) => `<button class="nrow" data-id="${esc(p.id)}"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span><b>UID ${esc(p.uid)} ${esc(p.nickname || "")}</b><small>마지막 접속 ${esc(dt(p.last_seen_at))}</small></button>`).join("") || '<p class="hint">검색 결과가 없습니다.</p>';
+      $("opsList").innerHTML = rows.map((p) => `<button class="nrow" data-id="${esc(p.id)}"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span><b>UID ${esc(p.uid)} ${esc(p.nickname || "이름 없음")}${p.level ? ` · Lv.${num(p.level)}` : ""}</b><small>마지막 접속 ${esc(dt(p.last_seen_at))}${prevNames(p).length ? ` · 이전 이름 ${esc(prevNames(p).slice(0, 3).join(", "))}` : ""}</small></button>`).join("") || '<p class="hint">검색 결과가 없습니다.</p>';
       $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openPlayer(b.dataset.id)));
     } catch (err) {
       $("opsCount").textContent = err.message;
@@ -220,14 +224,19 @@ async function openPlayer(id) {
   try {
     const list = await assets();
     const staff = ["owner", "operator", "cs"].includes(api.role);
-    const [[p], held, ledger, tickets] = await Promise.all([
+    const [[p], held, ledger, tickets, detail] = await Promise.all([
       rest(`players?id=eq.${id}&select=*`),
       staff ? rest(`player_assets?player_id=eq.${id}&select=asset,amount&order=asset`) : [],
       staff ? rest(`asset_ledger?player_id=eq.${id}&select=asset,delta,balance_after,reason,note,created_at&order=id.desc&limit=15`) : [],
       staff ? rest(`support_tickets?player_id=eq.${id}&select=ticket_no,subject,status&order=created_at.desc&limit=5`) : [],
+      rpc("admin_player_detail", { p_player: id }).catch(() => null),
     ]);
-    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화</h3><div class="stats">${held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("") || '<p class="hint">서버가 기록한 재화가 없습니다.</p>'}</div><h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각 <span class="hint">비우면 무기한</span></label><input id="plUntil" placeholder="YYYY-MM-DD HH:mm" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}</option>`).join("")}</select></div><div><label for="adDelta">증감 수량 <span class="hint">차감은 -</span></label><input id="adDelta" inputmode="numeric" /></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
-    if (staff) {
+    const deleted = p.status === "deleted";
+    const names = prevNames(p);
+    const wallet = detail?.hasSave ? Object.entries(detail.wallet || {}).filter(([, v]) => Number.isFinite(Number(v))) : [];
+    const pending = detail?.pending || [];
+    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${wallet.map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각 <span class="hint">비우면 무기한</span></label><input id="plUntil" placeholder="YYYY-MM-DD HH:mm" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}</option>`).join("")}</select></div><div><label for="adDelta">증감 수량 <span class="hint">차감은 -</span></label><input id="adDelta" inputmode="numeric" /></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 사지방 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
+    if (staff && !deleted) {
       setVal($("plSt"), p.status);
       $("plApply").onclick = async () => {
         try {
@@ -241,7 +250,19 @@ async function openPlayer(id) {
         }
       };
     }
-    if (canWrite()) {
+    if (canWrite() && !deleted) {
+      $("dlApply").onclick = async () => {
+        try {
+          const reason = $("dlReason").value.trim();
+          if (!reason) throw new Error("삭제 사유를 입력하세요.");
+          if (!(await api.ask(`UID ${p.uid} ${p.nickname || ""} 계정을 삭제할까요? 되돌릴 수 없습니다.`))) return;
+          await rpc("admin_delete_player", { p_player: id, p_reason: reason });
+          await openPlayer(id);
+          notify("plMsg", "삭제했습니다.");
+        } catch (e) {
+          notify("plMsg", e.message, true);
+        }
+      };
       $("adApply").onclick = async () => {
         try {
           const delta = Number($("adDelta").value.replace(/,/g, ""));
@@ -249,7 +270,7 @@ async function openPlayer(id) {
           if (!(await api.ask(`${assetLabel($("adAsset").value)} ${delta > 0 ? "+" : ""}${num(delta)}을(를) 적용할까요? 기록에 남습니다.`))) return;
           await rpc("admin_adjust_asset", { p_player: id, p_asset: $("adAsset").value, p_delta: delta, p_reason: $("adReason").value });
           await openPlayer(id);
-          notify("plMsg", "조정했습니다.");
+          notify("plMsg", "조정을 대기열에 올렸습니다. 접속 중이면 곧 반영됩니다.");
         } catch (e) {
           notify("plMsg", e.message, true);
         }
