@@ -221,7 +221,7 @@ const canWrite = () => role === "owner" || role === "operator";
 // ---------- 목록 ----------
 async function loadList() {
   notices = await rest(
-    "website_notices?select=*,website_notice_translations(locale,title,summary,body)&order=pinned.desc,published_at.desc",
+    "website_notices?select=*,website_notice_translations(locale,title,summary,body)&deleted_at=is.null&order=pinned.desc,published_at.desc",
   );
   renderList();
 }
@@ -664,12 +664,12 @@ $("remove").onclick = async () => {
   if (
     !cur?.id ||
     !(await ask(
-      `「${cur.tr[cur.source_locale].title || cur.slug}」을(를) 삭제할까요? 되돌릴 수 없습니다. (게시를 내리기만 하려면 상태를 임시저장으로 바꾸세요)`,
+      `「${cur.tr[cur.source_locale].title || cur.slug}」을(를) 휴지통으로 보낼까요? 게시가 내려가며 휴지통 탭에서 되살릴 수 있습니다.`,
     ))
   )
     return;
   try {
-    await rest(`website_notices?id=eq.${cur.id}`, { method: "DELETE" });
+    await rest("rpc/admin_trash_item", { method: "POST", json: { p_kind: "notice", p_id: cur.id } });
     cur = null;
     dirty = false;
     $("editor").hidden = true;

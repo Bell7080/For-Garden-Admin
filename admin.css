@@ -1164,3 +1164,32 @@ textarea::placeholder {
     scroll-behavior: auto;
   }
 }
+
+/* ───────── 휴지통·수량 부호·보상 행 ───────── */
+.actions .spacer { flex: 1; }
+.amount-row { display: flex; gap: 8px; align-items: stretch; }
+.amount-row input { flex: 1; min-width: 0; }
+.sign-toggle { display: inline-flex; flex: none; border: 1px solid var(--line); background: var(--paper); }
+.sign-toggle button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sign-toggle button + button { border-left: 1px solid var(--line); }
+.sign-toggle button.on { background: var(--yellow); color: #1a1d21; }
+.sign-toggle button:focus-visible { outline: 2px solid var(--yellow); outline-offset: -2px; }
+.reward-row .fg-select { flex: 1 1 200px; min-width: 190px; }
+.reward-row .fg-select-trigger { white-space: nowrap; }
+.reward-row input { flex: 0 1 120px; min-width: 90px; }
+.reward-row .btn { flex: none; white-space: nowrap; }
+.trash-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.trash-row .trash-text { flex: 1 1 220px; min-width: 0; display: grid; gap: 2px; }
+.trash-row .trash-text b { overflow-wrap: anywhere; }
+.trash-row .trash-text small { color: var(--muted); font-size: 12px; }
+.btn svg { vertical-align: -2px; margin-right: 2px; }
