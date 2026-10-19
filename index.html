@@ -146,12 +146,58 @@
                   </select>
                 </div>
                 <div>
-                  <label for="template">작성 템플릿</label
+                  <label for="template">공지 스타일</label
                   ><select id="template">
-                    <option value="plain">일반 안내</option>
-                    <option value="update">업데이트 노트</option>
-                    <option value="event">이벤트 안내</option>
+                    <option value="plain">일반 공지 · 게시판</option>
+                    <option value="update">패치노트 · 버전 표</option>
+                    <option value="event">이벤트 · 이미지 카드</option>
                   </select>
+                </div>
+              </div>
+              <div class="style-fields" id="updateFields" hidden>
+                <label for="version"
+                  >패치 버전
+                  <span class="hint">패치노트 표의 첫 칸에 표시됩니다.</span></label
+                ><input
+                  id="version"
+                  maxlength="24"
+                  placeholder="예: 0.3.0"
+                  spellcheck="false"
+                />
+              </div>
+              <div class="style-fields" id="eventFields" hidden>
+                <label for="gameEvent">인게임 이벤트 연결</label
+                ><select id="gameEvent"></select>
+                <p class="hint">
+                  연결하면 게임의 이벤트 기간을 불러옵니다. 기간은 아래에서 직접
+                  고칠 수 있고, 종료 시각이 지나면 홈페이지에서 종료된 이벤트로
+                  옮겨집니다.
+                </p>
+                <div class="row2">
+                  <div>
+                    <label for="eventStart">이벤트 시작</label
+                    ><input
+                      id="eventStart"
+                      type="text"
+                      data-datetime
+                      data-clearable
+                      data-empty="시작 시각"
+                      aria-label="이벤트 시작"
+                      spellcheck="false"
+                    />
+                  </div>
+                  <div>
+                    <label for="eventEnd">이벤트 종료</label
+                    ><input
+                      id="eventEnd"
+                      type="text"
+                      data-datetime
+                      data-clearable
+                      data-empty="종료 시각"
+                      aria-label="이벤트 종료"
+                      spellcheck="false"
+                    />
+                  </div>
                 </div>
               </div>
               <label for="slug"
@@ -227,17 +273,64 @@
                 <b>03</b>
                 <h3>대표 이미지</h3>
               </div>
-              <div class="coverbox">
-                <img id="coverImg" alt="대표 이미지 미리보기" hidden />
-                <div>
-                  <p class="hint">공지 목록과 상세 화면에 표시됩니다.</p>
+              <div class="frame-editor">
+                <div
+                  class="frame-stage"
+                  id="frameStage"
+                  tabindex="0"
+                  aria-label="대표 이미지 위치. 끌거나 방향키로 옮기고 +, - 키로 확대합니다."
+                >
+                  <img id="coverImg" alt="" draggable="false" hidden />
+                  <span class="frame-empty" id="frameEmpty"
+                    >대표 이미지를 고르세요</span
+                  >
+                  <span class="frame-badge" aria-hidden="true"
+                    >이벤트 카드 2:1</span
+                  >
+                </div>
+                <div class="frame-tools">
+                  <label for="frameZoom"
+                    >확대 <span id="frameZoomValue" class="hint">100%</span></label
+                  ><input
+                    type="range"
+                    id="frameZoom"
+                    min="1"
+                    max="3"
+                    step="0.01"
+                    value="1"
+                  />
+                  <p class="hint" id="frameFocus">
+                    칸 안을 끌어 보이는 부분을 고르세요.
+                  </p>
                   <div class="actions">
                     <button class="btn" id="pickCover" type="button">
                       이미지 선택</button
+                    ><button class="btn ghost" id="frameReset" type="button">
+                      가운데로</button
                     ><button class="btn ghost" id="clearCover" type="button">
                       제거
                     </button>
                   </div>
+                </div>
+                <div class="frame-crops" id="frameCrops" hidden>
+                  <figure>
+                    <div class="crop" style="aspect-ratio: 16 / 9">
+                      <img alt="" draggable="false" />
+                    </div>
+                    <figcaption>목록 썸네일 16:9</figcaption>
+                  </figure>
+                  <figure>
+                    <div class="crop" style="aspect-ratio: 4 / 3">
+                      <img alt="" draggable="false" />
+                    </div>
+                    <figcaption>모바일 카드 4:3</figcaption>
+                  </figure>
+                  <figure>
+                    <div class="crop" style="aspect-ratio: 5 / 2">
+                      <img alt="" draggable="false" />
+                    </div>
+                    <figcaption>패치노트 상단 5:2</figcaption>
+                  </figure>
                 </div>
               </div>
             </div>
@@ -293,7 +386,7 @@
               <h2>독자에게 보이는 모습</h2>
               <p class="hint">현재 선택한 언어로 미리 봅니다.</p>
             </div>
-            <h3>공지 목록</h3>
+            <h3 id="pvListLabel">공지 목록</h3>
             <div id="pvRow"></div>
             <h3 class="preview-detail-label">공지 상세</h3>
             <article class="dialog" id="pvDialog"></article>

@@ -12,6 +12,13 @@ for (const file of [
   "ui",
 ])
   await cp(file, `dist/${file}`, { recursive: true });
-for (const file of ["languages.js", "notice-body.js", "legacy-save.js", "datetime.js"])
+for (const file of [
+  "languages.js",
+  "notice-body.js",
+  "legacy-save.js",
+  "datetime.js",
+  "notice-style.js",
+  "game-events.js",
+])
   await cp(`shared/${file}`, `dist/shared/${file}`);
 console.log("Static admin built in dist/.");

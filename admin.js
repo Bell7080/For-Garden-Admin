@@ -3,6 +3,17 @@ import { languages as LOCALES } from "./shared/languages.js";
 import { renderBody } from "./shared/notice-body.js";
 import { mountOps, resetOps } from "./ops.js";
 import { enhanceDateTimes } from "./ui/datetime.js";
+import {
+  coverSize,
+  coverStyle,
+  dragFocus,
+  eventPhase,
+  normalizeFrame,
+  normalizeMeta,
+  remaining,
+  COVER_ZOOM_MAX,
+} from "./shared/notice-style.js";
+import { GAME_EVENTS } from "./shared/game-events.js";
 // 공개(publishable) 키만 사용한다. service_role 키는 이 저장소에 절대 넣지 않는다.
 // 토큰은 메모리에만 둔다(새로고침하면 다시 로그인). 권한은 DB의 RLS가 최종 판단한다.
 const BASE = "https://udujahnlyhedlrfbaaow.supabase.co";
@@ -57,6 +68,8 @@ let lang = "ko";
 let dirty = false;
 let atomicSaveMissing = false;
 let editGeneration = 0;
+// False when the database predates 20261024100000_notice_styles.sql (rows lack `meta`).
+let styleColumns = true;
 const blankTranslations = () =>
   Object.fromEntries(
     LOCALES.map(([id]) => [id, { title: "", summary: "", body: "" }]),
@@ -65,6 +78,12 @@ $("sourceLocale").innerHTML = LOCALES.map(
   ([id, name]) => `<option value="${id}" lang="${id}">${name}</option>`,
 ).join("");
 $("timeZone").textContent = Intl.DateTimeFormat().resolvedOptions().timeZone;
+$("gameEvent").innerHTML = [
+  `<option value="">연결 안 함</option>`,
+  ...GAME_EVENTS.map(
+    (e) => `<option value="${e.id}">${e.title} (${e.id})</option>`,
+  ),
+].join("");
 enhanceDateTimes();
 function ask(message) {
   const dialog = $("confirmDialog");
@@ -223,6 +242,7 @@ async function loadList() {
   notices = await rest(
     "website_notices?select=*,website_notice_translations(locale,title,summary,body)&order=pinned.desc,published_at.desc",
   );
+  if (notices.length) styleColumns = "meta" in notices[0];
   renderList();
 }
 function renderList() {
@@ -297,6 +317,8 @@ function blank(templateKey = "plain") {
     status: "draft",
     published_at: new Date().toISOString(),
     cover_image: null,
+    cover_frame: null,
+    meta: {},
     pinned: tpl.pinned,
     template: templateKey,
     source_locale: "ko",
@@ -326,8 +348,10 @@ function open(n, asCopy = false) {
     status: asCopy ? "draft" : n.status,
     published_at: n.published_at,
     cover_image: n.cover_image,
+    cover_frame: n.cover_frame ? normalizeFrame(n.cover_frame) : null,
+    meta: normalizeMeta(n.meta),
     pinned: n.pinned,
-    template: n.template,
+    template: n.template || "plain",
     tr,
   };
   if (n.tr) cur.tr = n.tr;
@@ -355,8 +379,27 @@ function show() {
   $("publishedAt").value = toLocalInput(cur.published_at);
   $("template").value = cur.template;
   $("pinned").value = String(cur.pinned);
-  $("template").disabled = !!cur.id;
-  ["save", "dup", "remove", "pickCover", "clearCover", "insertImg"].forEach(
+  $("version").value = cur.meta.version || "";
+  $("gameEvent").value = cur.meta.game_event_id || "";
+  $("eventStart").value = cur.meta.starts_at
+    ? toLocalInput(cur.meta.starts_at)
+    : "";
+  $("eventEnd").value = cur.meta.ends_at ? toLocalInput(cur.meta.ends_at) : "";
+  showStyleFields();
+  [
+    "save",
+    "dup",
+    "remove",
+    "pickCover",
+    "clearCover",
+    "frameReset",
+    "frameZoom",
+    "insertImg",
+    "version",
+    "gameEvent",
+    "eventStart",
+    "eventEnd",
+  ].forEach(
     (id) => ($(id).disabled = !canWrite()),
   );
   $("remove").disabled = !canWrite() || !cur.id;
@@ -371,7 +414,7 @@ function show() {
     "body",
   ].forEach((id) => ($(id).disabled = !canWrite()));
   $("slug").disabled = !!cur.id || !canWrite();
-  $("template").disabled = !!cur.id || !canWrite();
+  $("template").disabled = !canWrite();
   ["insertHeading", "insertList"].forEach(
     (id) => ($(id).disabled = !canWrite()),
   );
@@ -454,28 +497,160 @@ function readFields() {
   cur.source_locale = $("sourceLocale").value;
   cur.pinned = $("pinned").value === "true";
   cur.template = $("template").value;
+  const when = (id) => {
+    const v = $(id).value.trim().replace(" ", "T");
+    return v && Number.isFinite(Date.parse(v))
+      ? new Date(v).toISOString()
+      : undefined;
+  };
+  // Keep every style field so switching style back and forth loses nothing;
+  // the site only reads what the chosen style shows.
+  cur.meta = normalizeMeta({
+    version: $("version").value,
+    game_event_id: $("gameEvent").value,
+    starts_at: when("eventStart"),
+    ends_at: when("eventEnd"),
+  });
+  cur.invalidPeriod =
+    !!$("eventStart").value &&
+    !!$("eventEnd").value &&
+    Date.parse(when("eventEnd") ?? 0) < Date.parse(when("eventStart") ?? 0);
 }
+function showStyleFields() {
+  $("updateFields").hidden = cur.template !== "update";
+  $("eventFields").hidden = cur.template !== "event";
+}
+// ---------- 대표 이미지 위치 (홈페이지와 같은 coverStyle로 잘라 보여준다) ----------
 function renderCover() {
+  const has = !!(cur.cover_image && safeImage(cur.cover_image));
+  const frame = normalizeFrame(cur.cover_frame);
+  const style = coverStyle(frame);
   const img = $("coverImg");
-  img.hidden = !cur.cover_image;
-  if (cur.cover_image) img.src = cur.cover_image;
-}
-$("template").addEventListener("change", async () => {
-  if (cur.id) return;
-  const tpl = TEMPLATES[$("template").value];
-  if (
-    !(await ask("템플릿을 바꾸면 원문 본문과 분류가 바뀝니다. 계속할까요?"))
-  ) {
-    $("template").value = cur.template;
-    return;
+  img.hidden = !has;
+  $("frameEmpty").hidden = has;
+  $("frameCrops").hidden = !has;
+  if (has) {
+    if (img.getAttribute("src") !== cur.cover_image) img.src = cur.cover_image;
+    img.setAttribute("style", style);
+    document.querySelectorAll("#frameCrops img").forEach((crop) => {
+      if (crop.getAttribute("src") !== cur.cover_image)
+        crop.src = cur.cover_image;
+      crop.setAttribute("style", style);
+    });
   }
-  cur.template = $("template").value;
-  cur.category = tpl.category;
-  cur.pinned = tpl.pinned;
-  cur.tr[cur.source_locale].body = tpl.body[cur.source_locale] || "";
+  $("frameZoom").value = String(frame.zoom);
+  $("frameZoom").disabled = !has || !canWrite();
+  $("frameReset").disabled = !has || !canWrite();
+  $("frameZoomValue").textContent = `${Math.round(frame.zoom * 100)}%`;
+  $("frameFocus").textContent = has
+    ? `칸 안을 끌어 보이는 부분을 고르세요 · 가로 ${Math.round(frame.x)}% · 세로 ${Math.round(frame.y)}%`
+    : "이미지를 고르면 위치와 확대를 조정할 수 있습니다.";
+}
+function setFrame(next) {
+  if (!cur || !canWrite()) return;
+  cur.cover_frame = normalizeFrame({ ...normalizeFrame(cur.cover_frame), ...next });
+  markDirty();
+  renderCover();
+  preview();
+}
+let drag = null;
+$("frameStage").addEventListener("pointerdown", (event) => {
+  const img = $("coverImg");
+  if (!cur || img.hidden || !img.naturalWidth || !canWrite()) return;
+  event.preventDefault();
+  $("frameStage").setPointerCapture(event.pointerId);
+  const box = $("frameStage").getBoundingClientRect();
+  drag = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    start: normalizeFrame(cur.cover_frame),
+    box,
+    cover: coverSize(img.naturalWidth / img.naturalHeight, box.width, box.height),
+  };
+  $("frameStage").classList.add("dragging");
+});
+$("frameStage").addEventListener("pointermove", (event) => {
+  if (!drag || event.pointerId !== drag.id) return;
+  const f = drag.start;
+  setFrame({
+    x: f.x + dragFocus(f, event.clientX - drag.x, drag.box.width, drag.cover.w),
+    y: f.y + dragFocus(f, event.clientY - drag.y, drag.box.height, drag.cover.h),
+  });
+});
+const endDrag = () => {
+  drag = null;
+  $("frameStage").classList.remove("dragging");
+};
+$("frameStage").addEventListener("pointerup", endDrag);
+$("frameStage").addEventListener("pointercancel", endDrag);
+$("frameStage").addEventListener("keydown", (event) => {
+  if (!cur?.cover_image || !canWrite()) return;
+  const f = normalizeFrame(cur.cover_frame);
+  const step = event.shiftKey ? 10 : 2;
+  const moves = {
+    ArrowLeft: { x: f.x - step },
+    ArrowRight: { x: f.x + step },
+    ArrowUp: { y: f.y - step },
+    ArrowDown: { y: f.y + step },
+    "+": { zoom: f.zoom + 0.1 },
+    "=": { zoom: f.zoom + 0.1 },
+    "-": { zoom: f.zoom - 0.1 },
+    0: { zoom: 1, x: 50, y: 50 },
+  };
+  const next = moves[event.key];
+  if (!next) return;
+  event.preventDefault();
+  setFrame(next);
+});
+$("frameZoom").max = String(COVER_ZOOM_MAX);
+$("frameZoom").addEventListener("input", () =>
+  setFrame({ zoom: Number($("frameZoom").value) }),
+);
+$("frameReset").onclick = () => setFrame({ zoom: 1, x: 50, y: 50 });
+$("coverImg").addEventListener("load", () => {
+  if (cur) renderCover();
+});
+$("template").addEventListener("change", async () => {
+  const next = $("template").value;
+  const tpl = TEMPLATES[next];
+  const body = cur.tr[cur.source_locale].body;
+  const untouched =
+    !body.trim() ||
+    Object.values(TEMPLATES).some((t) => t.body[cur.source_locale] === body);
+  // A fresh template body is swapped for the new style's; written text is kept.
+  if (untouched) {
+    cur.tr[cur.source_locale].body = tpl.body[cur.source_locale] || "";
+    if (!cur.id) {
+      cur.category = tpl.category;
+      cur.pinned = tpl.pinned;
+    }
+  }
+  cur.template = next;
   dirty = true;
   show();
 });
+$("gameEvent").addEventListener("change", () => {
+  const event = GAME_EVENTS.find((e) => e.id === $("gameEvent").value);
+  if (event) {
+    $("eventStart").value = toLocalInput(event.starts_at);
+    $("eventEnd").value = toLocalInput(event.ends_at);
+    if (!cur.tr[cur.source_locale].title.trim() && lang === cur.source_locale) {
+      $("title").value = event.title;
+      if (!$("summary").value.trim()) $("summary").value = event.subtitle;
+    }
+  }
+  markDirty();
+  readFields();
+  preview();
+});
+["version", "eventStart", "eventEnd"].forEach((id) =>
+  $(id).addEventListener("input", () => {
+    markDirty();
+    readFields();
+    preview();
+  }),
+);
 [
   "category",
   "status",
@@ -531,11 +706,76 @@ function preview() {
           ? "변경 사항 게시"
           : "공지 게시";
   const cover = cur.cover_image && safeImage(cur.cover_image);
+  const title = esc(t.title || "(제목)");
+  const coverImg = cover
+    ? `<img class="cover-img" src="${esc(cur.cover_image)}" alt="" style="${coverStyle(cur.cover_frame)}">`
+    : `<span class="cover-empty" aria-hidden="true">${STAR}</span>`;
+  const meta = normalizeMeta(cur.meta);
+  const period = periodText(meta);
+  const badge = eventBadge(meta);
   $("pvDialog").lang = manual ? lang : cur.source_locale;
+  $("pvListLabel").textContent =
+    cur.template === "event"
+      ? "진행 중인 이벤트 카드"
+      : cur.template === "update"
+        ? "패치노트 표"
+        : "공지 목록";
   $("pvRow").innerHTML =
-    `<div class="news-row${cover ? " has-cover" : ""}">${cover ? `<img class="news-thumb" src="${esc(cur.cover_image)}" alt="">` : ""}<span class="news-category">${cur.pinned ? "고정 · " : ""}${CATEGORY[cur.category]}</span><strong>${esc(t.title || "(제목)")}</strong><time>${esc(date)}</time></div>`;
+    cur.template === "event"
+      ? `<div class="pv-event"><div class="event-feature"><span class="cover-box">${coverImg}</span><span class="feature-shade"></span><span class="feature-copy">${badge ? `<span class="event-badge ${badge.cls}">${STAR}${esc(badge.label)}</span>` : ""}<strong>${title}</strong>${period ? `<span class="feature-period">${esc(period)}</span>` : ""}${t.summary ? `<span class="feature-summary">${esc(t.summary)}</span>` : ""}</span></div><div class="event-pick"><span class="cover-box">${coverImg}</span>${badge?.d ? `<span class="event-d">${esc(badge.d)}</span>` : ""}<strong>${title}</strong></div></div>`
+      : cur.template === "update"
+        ? `<div class="patch-table"><div class="patch-head"><span>버전</span><span>제목</span><span>작성일</span></div><div class="patch-row"><span class="patch-version">${meta.version ? esc(meta.version) : STAR}</span><strong>${title}<em class="new-chip">New</em></strong><time>${esc(date.slice(0, 10))}</time></div></div>`
+        : `<div class="news-row${cover ? " has-cover" : ""}">${cover ? `<img class="news-thumb" src="${esc(cur.cover_image)}" alt="">` : ""}<span class="news-category">${cur.pinned ? "고정 · " : ""}${CATEGORY[cur.category]}</span><strong>${title}</strong><time>${esc(date)}</time></div>`;
+  const hero =
+    cur.template === "plain"
+      ? ""
+      : `<div class="notice-hero kind-${cur.template}${cover ? "" : " no-cover"}"><span class="cover-box">${coverImg}</span><span class="feature-shade"></span><span class="hero-copy">${cur.template === "update" && meta.version ? `<span class="event-badge">${esc(meta.version)}</span>` : ""}${cur.template === "event" && badge ? `<span class="event-badge ${badge.cls}">${STAR}${esc(badge.label)}</span>` : ""}</span></div>`;
   $("pvDialog").innerHTML =
-    `<p class="eyebrow">GARDEN JOURNAL</p><h2>${esc(t.title || "(제목)")}</h2><time>${esc(date)}</time>${!manual ? `<p class="hint">원문 미리보기</p>` : ""}${cover ? `<img class="notice-cover" src="${esc(cur.cover_image)}" alt="">` : ""}<div class="notice-body">${renderBody(t.body)}</div>`;
+    `${hero}<p class="eyebrow">GARDEN JOURNAL</p><h2>${title}</h2><time>${esc(date)}</time>${cur.template === "event" && period ? `<div class="notice-period"><strong>진행 기간</strong><p>${esc(period)}</p></div>` : ""}${!manual ? `<p class="hint">원문 미리보기</p>` : ""}${cover && cur.template === "plain" ? `<img class="notice-cover" src="${esc(cur.cover_image)}" alt="">` : ""}<div class="notice-body">${renderBody(t.body)}</div>`;
+}
+const STAR =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m12 1 2.5 8.5L23 12l-8.5 2.5L12 23l-2.5-8.5L1 12l8.5-2.5z"/></svg>';
+const kst = (iso) => {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("ko", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone: "Asia/Seoul",
+    })
+      .formatToParts(new Date(iso))
+      .map((x) => [x.type, x.value]),
+  );
+  return `${p.year}.${p.month}.${p.day} ${p.hour}:${p.minute}`;
+};
+function periodText(meta) {
+  if (!meta.starts_at && !meta.ends_at) return "";
+  return `${meta.starts_at ? kst(meta.starts_at) : ""} ~ ${meta.ends_at ? kst(meta.ends_at) : ""} (KST)`;
+}
+// Same wording as the site badge (Korean preview).
+function eventBadge(meta) {
+  const phase = eventPhase(meta);
+  if (phase === "ended") return { cls: "is-ended", label: "종료", d: "종료" };
+  if (phase === "upcoming") {
+    const left = meta.starts_at ? remaining(meta.starts_at) : null;
+    return {
+      cls: "is-soon",
+      label: left?.days ? `${left.days}일 뒤 시작` : "곧 시작",
+      d: "시작 예정",
+    };
+  }
+  const left = meta.ends_at ? remaining(meta.ends_at) : null;
+  if (!left) return null;
+  return {
+    cls: "",
+    label: left.days
+      ? `${left.days}일 ${left.hours}시간 남음`
+      : `${left.hours}시간 ${left.minutes}분 남음`,
+    d: `D-${left.days}`,
+  };
 }
 
 // ---------- 저장 / 복제 / 삭제 ----------
@@ -558,6 +798,8 @@ function validate() {
     return "원문 언어의 제목과 본문을 입력해 주세요.";
   if (cur.invalidDate)
     return "게시 일시를 선택해 주세요.";
+  if (cur.template === "event" && cur.invalidPeriod)
+    return "이벤트 종료 시각이 시작보다 빠릅니다.";
   return "";
 }
 $("save").onclick = async () => {
@@ -579,6 +821,8 @@ $("save").onclick = async () => {
       status: cur.status,
       published_at: cur.published_at,
       cover_image: cur.cover_image,
+      cover_frame: cur.cover_image ? normalizeFrame(cur.cover_frame) : null,
+      meta: normalizeMeta(cur.meta),
       pinned: cur.pinned,
       template: cur.template,
       source_locale: cur.source_locale,
@@ -628,7 +872,12 @@ $("save").onclick = async () => {
       );
     } else {
       $("schemaNotice").hidden = true;
-      setMsg("공지를 저장했습니다.");
+      setMsg(
+        styleColumns
+          ? "공지를 저장했습니다."
+          : "공지를 저장했습니다. 이미지 위치·패치 버전·이벤트 기간은 DB 업데이트(20261024100000_notice_styles.sql) 후 저장됩니다.",
+        !styleColumns,
+      );
     }
   } catch (error) {
     const message = error.message.includes("409")
@@ -713,12 +962,14 @@ $("closePicker").onclick = closePicker;
 $("pickCover").onclick = () =>
   openPicker((url) => {
     cur.cover_image = url;
+    cur.cover_frame = null;
     markDirty();
     renderCover();
     preview();
   });
 $("clearCover").onclick = () => {
   cur.cover_image = null;
+  cur.cover_frame = null;
   markDirty();
   renderCover();
   preview();
