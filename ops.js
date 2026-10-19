@@ -379,7 +379,7 @@ async function openMail(id) {
       const [p] = await rest(`players?id=eq.${m.target_player}&select=uid,nickname`);
       target = `UID ${p?.uid ?? "?"} ${p?.nickname || ""}`;
     }
-    box.innerHTML = `<section class="card"><p class="eyebrow">MAIL</p><h2>${esc(m.title)}</h2><p class="hint"><span class="tag ${m.status === "active" ? "pub" : ""}">${m.status === "active" ? "발송" : "취소"}</span> ${esc(target)} · ${esc(dt(m.starts_at))} ~ ${esc(dt(m.expires_at))}</p><p class="mail-body">${esc(m.body)}</p><h3>첨부 보상</h3><div class="chips">${chips(m.rewards)}</div><p class="hint">수령 ${num(claims.length)}${claims.length >= 1000 ? "명 이상" : "명"}</p>${canWrite() ? `<div class="actions">${m.status === "active" ? '<button class="btn ghost" id="mlCancel" type="button">발송 취소</button>' : ""}<span class="spacer"></span>${trashBtn("mlTrash")}</div>` : ""}<p class="msg" id="mlMsg" role="status"></p></section>`;
+    box.innerHTML = `<section class="card"><p class="eyebrow">MAIL</p><h2>${esc(m.title)}</h2><p class="hint"><span class="tag ${m.status === "active" ? "pub" : ""}">${m.status === "active" ? "발송" : "취소"}</span> ${esc(target)} · ${esc(dt(m.starts_at))} ~ ${esc(dt(m.expires_at))}${!m.target_player ? (m.include_new_accounts ? " · 신규 가입 계정 포함" : " · 기존 계정만") : ""}</p><p class="mail-body">${esc(m.body)}</p><h3>첨부 보상</h3><div class="chips">${chips(m.rewards)}</div><p class="hint">수령 ${num(claims.length)}${claims.length >= 1000 ? "명 이상" : "명"}</p>${canWrite() ? `<div class="actions">${m.status === "active" ? '<button class="btn ghost" id="mlCancel" type="button">발송 취소</button>' : ""}<span class="spacer"></span>${trashBtn("mlTrash")}</div>` : ""}<p class="msg" id="mlMsg" role="status"></p></section>`;
     if ($("mlTrash")) $("mlTrash").onclick = () => sendToTrash("mail", id, m.title, () => loadMailList(), "mlMsg");
     if ($("mlCancel"))
       $("mlCancel").onclick = async () => {
@@ -399,7 +399,7 @@ async function openMail(id) {
 async function composeMail() {
   markSelected(null);
   const list = await assets();
-  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID</label><input id="mlTarget" inputmode="numeric" autocomplete="off" placeholder="비워두면 전체 발송" /></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option><option value="custom">날짜 직접 지정</option></select><input id="mlExpire" data-datetime data-presets="+7d,+30d,+90d,today23" data-empty="만료 일시를 고르세요" aria-label="우편 만료 일시" hidden /></div></div><label for="mlStart">발송 시각</label><input id="mlStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9,nextMonday9" data-empty="비워두면 즉시 발송" aria-label="발송 시각" /><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
+  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID</label><input id="mlTarget" inputmode="numeric" autocomplete="off" placeholder="비워두면 전체 발송" /></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option><option value="custom">날짜 직접 지정</option></select><input id="mlExpire" data-datetime data-presets="+7d,+30d,+90d,today23" data-empty="만료 일시를 고르세요" aria-label="우편 만료 일시" hidden /></div></div><label for="mlStart">발송 시각</label><input id="mlStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9,nextMonday9" data-empty="비워두면 즉시 발송" aria-label="발송 시각" /><div id="mlNewBox"><label class="check"><input type="checkbox" id="mlNew" /> 발송 이후 만료 전까지 새로 가입한 계정도 받기</label><p class="hint">끄면 우편이 시작되기 전에 만들어진 계정만 받습니다. 특정 UID 발송에는 적용되지 않습니다.</p></div><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
   const readRewards = rewardEditor($("mlRewards"), list);
   enhanceDateTimes($("opsDetail"));
   const customExpire = () => $("mlDays").value === "custom";
@@ -409,6 +409,9 @@ async function composeMail() {
   };
   $("mlDays").onchange = syncExpire;
   syncExpire();
+  const syncNew = () => ($("mlNewBox").hidden = $("mlTarget").value.trim() !== "");
+  $("mlTarget").oninput = syncNew;
+  syncNew();
   $("mlSend").onclick = async () => {
     try {
       const uid = $("mlTarget").value.trim();
@@ -433,7 +436,7 @@ async function composeMail() {
       }
       const rewards = readRewards();
       if (!(await api.ask(`${who}에게 우편을 보낼까요?\n보상: ${rewardPlain(rewards)}`))) return;
-      await rpc("admin_send_mail", { p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_target: target, p_starts: starts, p_expires: expires });
+      await rpc("admin_send_mail", { p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_target: target, p_starts: starts, p_expires: expires, p_include_new: !uid && $("mlNew").checked });
       await loadMailList();
       $("opsDetail").innerHTML = `<section class="card"><p class="msg">발송했습니다.</p></section>`;
     } catch (e) {
