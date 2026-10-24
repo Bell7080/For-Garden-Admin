@@ -269,7 +269,8 @@ async function openPlayer(id) {
     // 가방의 아이템은 재화 뒤에 함께 세운다(키는 지급 목록과 같은 item:<ID>).
     const bag = detail?.hasSave ? (detail.items || []).filter((x) => x && Number(x.quantity) > 0).map((x) => [`item:${x.itemId}`, x.quantity]) : [];
     const pending = detail?.pending || [];
-    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${[...wallet, ...bag].map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각</label><input id="plUntil" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="비워두면 무기한" aria-label="정지 해제 시각" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화·아이템</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}${isItem(a.asset) ? " (아이템)" : ""}</option>`).join("")}</select></div><div><label for="adDelta">수량</label><div class="amount-row"><div class="sign-toggle" role="group" aria-label="지급 또는 차감"><button type="button" class="on" data-sign="1" aria-pressed="true">+ 지급</button><button type="button" data-sign="-1" aria-pressed="false">− 차감</button></div><input id="adDelta" inputmode="numeric" placeholder="수량" /></div></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted && targetStaff ? '<section class="card"><h3>계정 삭제</h3><p class="hint">운영진 계정은 삭제할 수 없습니다. 먼저 운영진 권한을 해제해야 합니다.</p></section>' : ""}${canWrite() && deleted ? `<section class="card"><h3>삭제된 계정</h3><p class="hint">되살리면 진행 데이터 없이 빈 계정으로 돌아오고, 영구 삭제하면 UID·이름 기록까지 지워 목록에서 사라집니다.</p><div class="actions"><button class="btn" id="plRestore" type="button">되살리기</button><span class="spacer"></span>${trashBtn("plPurge", "영구 삭제")}</div></section>` : ""}${canWrite() && !deleted && !targetStaff ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
+    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${[...wallet, ...bag].map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? '<section class="card" id="clCard"><p class="hint">재화 기록을 불러오는 중…</p></section>' : ""}${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각</label><input id="plUntil" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="비워두면 무기한" aria-label="정지 해제 시각" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화·아이템</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}${isItem(a.asset) ? " (아이템)" : ""}</option>`).join("")}</select></div><div><label for="adDelta">수량</label><div class="amount-row"><div class="sign-toggle" role="group" aria-label="지급 또는 차감"><button type="button" class="on" data-sign="1" aria-pressed="true">+ 지급</button><button type="button" data-sign="-1" aria-pressed="false">− 차감</button></div><input id="adDelta" inputmode="numeric" placeholder="수량" /></div></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted && targetStaff ? '<section class="card"><h3>계정 삭제</h3><p class="hint">운영진 계정은 삭제할 수 없습니다. 먼저 운영진 권한을 해제해야 합니다.</p></section>' : ""}${canWrite() && deleted ? `<section class="card"><h3>삭제된 계정</h3><p class="hint">되살리면 진행 데이터 없이 빈 계정으로 돌아오고, 영구 삭제하면 UID·이름 기록까지 지워 목록에서 사라집니다.</p><div class="actions"><button class="btn" id="plRestore" type="button">되살리기</button><span class="spacer"></span>${trashBtn("plPurge", "영구 삭제")}</div></section>` : ""}${canWrite() && !deleted && !targetStaff ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
+    if (staff) mountCurrencyLog(id);
     if (staff && !deleted) {
       setVal($("plSt"), p.status);
       $("plApply").onclick = async () => {
@@ -349,6 +350,81 @@ async function openPlayer(id) {
   } catch (e) {
     fail(box, e);
   }
+}
+
+// ───────── 재화 기록(획득·소모) ─────────
+// 서버(player_saves 트리거)가 지갑이 바뀐 순간마다 남긴 currency_log 를 읽는다. 이상 징후 기준은 DB 의 currency_alert_rules.
+const WALLET_LABELS = { gems: "젬", gold: "골드", cheesecake: "치즈케이크", fossil: "화석", amber: "호박석", rawStone: "원석", dnaFragments: "DNA 마일리지", stamina: "스테미나", raidSigil: "토벌 증표", salvageRecord: "인양 기록", duelEmblem: "결투 휘장" };
+const SOURCE_LABELS = {
+  admin_adjust: "어드민 조정", initial: "계정 시작", unknown: "알 수 없음",
+  pullRelics: "연구(뽑기)", purchaseProduct: "상품 구매", fulfillPlatformPurchase: "결제 지급", verifyPurchaseReceipt: "결제 확인", rechargeStamina: "스테미나 충전", useConsumable: "소비품 사용",
+  claimMailRewards: "우편 수령", claimMissionRewards: "임무 보상", claimAchievementRewards: "업적 보상", claimAttendance: "출석", claimAttendanceAd: "출석 광고", claimAdReward: "광고 보상", claimInstantAdReward: "광고 즉시 보상",
+  claimPassDailyBonus: "패스 일일", claimProgressPass: "패스 보상", claimExpeditionReward: "원정 보상", claimDuelSeasonReward: "결투 시즌 보상", claimRelicChapter: "애착 스토리 보상", claimRelicQuestionReward: "관찰 질문 보상", claimInteractionDispatch: "교류 파견 수령",
+  completeStage: "스테이지 클리어", completeStory: "스토리 완료", completeBounty: "현상수배", sweepBounty: "현상수배 소탕", completeCakeOperation: "치즈케이크 대작전", sweepCakeOperation: "대작전 소탕", sweepExpedition: "원정 소탕",
+  settleExpeditionRun: "원정 정산", settleRaid: "레이드 정산", submitRaidDamage: "레이드 피해", enterRaid: "레이드 입장", enterStage: "스테이지 입장", enterBounty: "현상수배 입장", enterCakeOperation: "대작전 입장", enterDuel: "결투 입장", resolveDuel: "결투 결과",
+  buyDuelAttempt: "결투권 구매", buyGuildProduct: "길드 상점", createGuild: "길드 생성", changeGuildBadge: "길드 뱃지", stampGuildAttendance: "길드 출석",
+  feedRelic: "급여", breakThroughRelic: "한계 돌파", enhanceRune: "룬 강화", enhanceRuneAll: "룬 일괄 강화", engraveRune: "룬 각인", sellRunes: "룬 판매", synthesizeRunes: "룬 합성", rerollRuneTrait: "룬 특성 재설정", upgradeRuneTrait: "룬 특성 강화",
+  harvestExcavation: "발굴 수확", digStrataTile: "고고학 굴착", startStrataRun: "고고학 시작", spinRoulette: "돌림판", purchaseRelicSkin: "외형 구매", activatePass: "패스 활성화", answerRelicQuestion: "관찰 질문", completeObservation: "관찰 기록", applyDebugCommand: "개발 도구",
+};
+const sourceLabel = (s) => (String(s).startsWith("other:") ? `상대 계정 · ${SOURCE_LABELS[s.slice(6)] || s.slice(6)}` : SOURCE_LABELS[s] || s);
+const walletLabel = (a) => WALLET_LABELS[a] || assetLabel(a);
+
+async function mountCurrencyLog(id) {
+  const host = $("clCard");
+  if (!host) return;
+  const state = { kind: null, asset: "", flagged: false, rows: [], summary: [], bigCount: 0, more: true, known: new Set() };
+  const fetchPage = (before) => rpc("admin_currency_log", { p_player: id, p_kind: state.kind, p_asset: state.asset || null, p_before: before ?? null, p_limit: 100 });
+  const rowHtml = (r) => `<p><b>${esc(walletLabel(r.asset))} ${r.delta > 0 ? "+" : "−"}${num(Math.abs(r.delta))}</b> <small>잔액 ${num(r.balance)}</small><br><small>${esc(sourceLabel(r.source))} · ${esc(new Intl.DateTimeFormat("ko", { dateStyle: "short", timeStyle: "medium" }).format(new Date(r.at)))}</small>${r.big ? ' <span class="tag scheduled">큰 수량</span>' : ""}${r.burst ? ' <span class="tag scheduled">단시간 급증</span>' : ""}</p>`;
+  const paint = () => {
+    const shown = state.flagged ? state.rows.filter((r) => r.big || r.burst) : state.rows;
+    const gains = shown.filter((r) => r.delta > 0);
+    const spends = shown.filter((r) => r.delta < 0);
+    const top = state.summary.filter((s) => (s.gain > 0 || s.spend > 0)).slice(0, 8);
+    state.rows.forEach((r) => state.known.add(r.asset));
+    const assetsSeen = [...state.known];
+    host.innerHTML = `<h3>재화 기록 <span class="hint">획득·소모 · 서버가 지갑 변화를 기록한 값</span></h3>
+      ${state.bigCount ? `<p class="hint"><span class="tag scheduled">주의</span> 최근 7일 큰 수량 변동 ${num(state.bigCount)}건</p>` : ""}
+      ${top.length ? `<h3>최근 7일 출처별 합계</h3><div class="ledger">${top.map((s) => `<p><b>${esc(walletLabel(s.asset))}</b> · ${esc(sourceLabel(s.source))} <small>획득 ${num(s.gain)} / 소모 ${num(s.spend)} · ${num(s.n)}회</small></p>`).join("")}</div>` : ""}
+      <div class="row2"><div><label for="clAsset">재화</label><select id="clAsset"><option value="">전체</option>${assetsSeen.map((a) => `<option value="${esc(a)}">${esc(walletLabel(a))}</option>`).join("")}</select></div><div><label>보기</label><div class="tabs" style="margin:0;padding:0;border:0"><button type="button" id="clFlag" class="${state.flagged ? "on" : ""}" aria-pressed="${state.flagged}">이상 징후만</button></div></div></div>
+      <div class="cl-grid"><div><h3>획득 <span class="hint">${num(gains.length)}건</span></h3><div class="ledger">${gains.map(rowHtml).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></div>
+      <div><h3>소모 <span class="hint">${num(spends.length)}건</span></h3><div class="ledger">${spends.map(rowHtml).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></div></div>
+      ${state.more ? '<div class="actions"><button class="btn" id="clMore" type="button">더 보기</button></div>' : ""}`;
+    const sel = $("clAsset");
+    setVal(sel, state.asset);
+    sel.onchange = () => {
+      state.asset = sel.value;
+      load();
+    };
+    $("clFlag").onclick = () => {
+      state.flagged = !state.flagged;
+      paint();
+    };
+    const more = $("clMore");
+    if (more) more.onclick = async () => {
+      try {
+        const last = state.rows[state.rows.length - 1];
+        const page = await fetchPage(last?.id);
+        state.rows = state.rows.concat(page.rows);
+        state.more = page.rows.length >= 100;
+        paint();
+      } catch (e) {
+        host.querySelector("h3").insertAdjacentHTML("afterend", `<p class="msg bad">${esc(e.message)}</p>`);
+      }
+    };
+  };
+  const load = async () => {
+    try {
+      const res = await fetchPage(null);
+      state.rows = res.rows;
+      state.summary = res.summary7d;
+      state.bigCount = res.bigCount7d;
+      state.more = res.rows.length >= 100;
+      paint();
+    } catch (e) {
+      host.innerHTML = `<h3>재화 기록</h3><p class="hint">${esc(/Could not find|PGRST202|404/.test(e.message) ? "재화 기록 마이그레이션이 아직 적용되지 않았습니다." : e.message)}</p>`;
+    }
+  };
+  await load();
 }
 
 // ───────── 우편 ─────────

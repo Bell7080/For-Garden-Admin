@@ -1557,3 +1557,10 @@ input[type="range"]:disabled {
 .hours-input { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .hours-input input { width: 110px; }
 .hours-input[hidden] { display: none; }
+
+
+/* 재화 기록: 획득/소모 두 칸 */
+.cl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+.cl-grid > div { min-width: 0; }
+.cl-grid .ledger { max-height: 520px; overflow-y: auto; }
+@media (max-width: 720px) { .cl-grid { grid-template-columns: 1fr; } }
