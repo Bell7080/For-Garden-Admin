@@ -1538,3 +1538,19 @@ input[type="range"]:disabled {
 .trash-row .trash-text b { overflow-wrap: anywhere; }
 .trash-row .trash-text small { color: var(--muted); font-size: 12px; }
 .btn svg { vertical-align: -2px; margin-right: 2px; }
+
+/* 정기 우편 · 패치노트 · 정기 이벤트 */
+.ops-subtabs { margin: 0; padding: 12px 24px; }
+.day-picks { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.patch-items, .entry-rows { display: grid; gap: 8px; margin-bottom: 8px; }
+.patch-items .reward-row input { flex: 1; min-width: 0; }
+.entry-card { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); background: var(--paper); }
+.entry-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.entry-head label { display: inline-flex; align-items: center; gap: 8px; margin: 0; }
+.entry-head input { width: 110px; }
+.week-list { display: grid; gap: 8px; margin: 12px 0; }
+.week-row { display: grid; grid-template-columns: minmax(150px, 190px) 1fr; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--line); background: var(--paper); }
+.week-row.now { border-color: var(--yellow); }
+.week-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.ec-on { margin-top: 28px; }
+@media (max-width: 860px) { .week-row { grid-template-columns: 1fr; } }

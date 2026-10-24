@@ -25,13 +25,17 @@ const ERRORS = {
   cannot_delete_staff: "운영진 계정은 삭제할 수 없습니다.",
   player_deleted: "이미 삭제된 계정입니다.",
   already_deleted: "이미 삭제된 계정입니다.",
+  before_launch: "패치노트는 1.0.0 정식 출시 이후 버전부터 기록합니다.",
+  in_rotation: "이번 주 이후 편성에 들어 있는 컨텐츠는 지울 수 없습니다. 먼저 편성에서 빼세요.",
 };
 const VIEWS = [
   { id: "notice", label: "공지", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "CONTENT DESK", title: "공지 관리" },
+  { id: "patchnotes", label: "패치노트", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "CONTENT DESK", title: "패치노트" },
   { id: "tickets", label: "문의·신고", roles: ["owner", "operator", "cs"], eyebrow: "SUPPORT DESK", title: "문의·신고" },
   { id: "players", label: "계정", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "PLAYER DESK", title: "계정 관리" },
   { id: "mails", label: "우편", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "REWARD DESK", title: "우편·보상 발송" },
   { id: "coupons", label: "쿠폰", roles: ["owner", "operator"], eyebrow: "REWARD DESK", title: "쿠폰 관리" },
+  { id: "events", label: "정기 이벤트", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "정기 이벤트" },
   { id: "config", label: "운영 설정", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "운영 설정" },
   { id: "trash", label: "휴지통", roles: ["owner", "operator"], eyebrow: "ARCHIVE", title: "휴지통" },
   { id: "audit", label: "감사 로그", roles: ["owner"], eyebrow: "SECURITY", title: "감사 로그" },
@@ -101,8 +105,8 @@ const chips = (list) =>
 const rewardPlain = (list) => (list || []).map((r) => `${assetLabel(r.asset)} ${num(r.amount)}`).join(", ") || "없음";
 
 // 왼쪽 목록 + 오른쪽 상세. 공지 화면과 같은 틀이다.
-function shell({ title, action = "", filters = "", hintId = "opsCount" }) {
-  $("opsBody").innerHTML = `<div class="app ops-app"><aside class="side"><div class="side-heading"><h2>${esc(title)}</h2>${action}</div>${filters}<p class="hint" id="${hintId}" role="status"></p><div id="opsList"></div></aside><main class="ops-main" id="opsDetail"></main></div>`;
+function shell({ title, action = "", filters = "", hintId = "opsCount", tabs = "" }) {
+  $("opsBody").innerHTML = `${tabs}<div class="app ops-app"><aside class="side"><div class="side-heading"><h2>${esc(title)}</h2>${action}</div>${filters}<p class="hint" id="${hintId}" role="status"></p><div id="opsList"></div></aside><main class="ops-main" id="opsDetail"></main></div>`;
 }
 const placeholder = (text) => `<div class="empty-state ops-empty"><span class="archive-mark" aria-hidden="true">·</span><p class="hint">${esc(text)}</p></div>`;
 function markSelected(id) {
@@ -124,7 +128,7 @@ async function sendToTrash(kind, id, name, reload, msgId) {
 const fail = (box, e) => (box.innerHTML = `<section class="card"><p class="msg bad">${esc(e.message)}</p></section>`);
 
 // ───────── 보상 행 편집기 ─────────
-function rewardEditor(host, list) {
+function rewardEditor(host, list, initial = []) {
   host.innerHTML = `<div class="reward-rows"></div><button class="btn ghost" type="button" data-add>+ 재화 추가</button>`;
   const rows = host.querySelector(".reward-rows");
   const add = (asset = list[0]?.asset, amount = "") => {
@@ -135,7 +139,8 @@ function rewardEditor(host, list) {
     rows.append(row);
   };
   host.querySelector("[data-add]").onclick = () => add();
-  add();
+  if (initial.length) initial.forEach((r) => add(r.asset, r.amount));
+  else add();
   return () =>
     [...rows.querySelectorAll(".reward-row")]
       .map((row) => ({ asset: row.querySelector("select").value, amount: Number(row.querySelector("input").value.replace(/,/g, "")) }))
@@ -347,10 +352,13 @@ async function openPlayer(id) {
 }
 
 // ───────── 우편 ─────────
-async function viewMails() {
+const MAIL_TABS = [["normal", "일반 우편"], ["recurring", "정기 우편"]];
+async function viewMails(tab = "normal") {
   await assets();
-  shell({ title: "우편", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">새 우편</button>' : "", filters: `<select id="mlFilter" aria-label="상태"><option value="">상태 전체</option><option value="active">발송</option><option value="cancelled">취소</option></select>` });
+  if (tab === "recurring") return viewRecurringMails();
+  shell({ tabs: subTabsHtml(MAIL_TABS, "normal", "우편 구분"), title: "우편", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">새 우편</button>' : "", filters: `<select id="mlFilter" aria-label="상태"><option value="">상태 전체</option><option value="active">발송</option><option value="cancelled">취소</option></select>` });
   $("opsDetail").innerHTML = placeholder(canWrite() ? "목록에서 우편을 선택하거나 새 우편을 작성하세요." : "목록에서 우편을 선택하세요.");
+  bindSubTabs((t) => viewMails(t));
   if (canWrite()) $("opsNew").onclick = composeMail;
   $("mlFilter").onchange = loadMailList;
   await loadMailList();
@@ -379,7 +387,7 @@ async function openMail(id) {
       const [p] = await rest(`players?id=eq.${m.target_player}&select=uid,nickname`);
       target = `UID ${p?.uid ?? "?"} ${p?.nickname || ""}`;
     }
-    box.innerHTML = `<section class="card"><p class="eyebrow">MAIL</p><h2>${esc(m.title)}</h2><p class="hint"><span class="tag ${m.status === "active" ? "pub" : ""}">${m.status === "active" ? "발송" : "취소"}</span> ${esc(target)} · ${esc(dt(m.starts_at))} ~ ${esc(dt(m.expires_at))}${!m.target_player ? (m.include_new_accounts ? " · 신규 가입 계정 포함" : " · 기존 계정만") : ""}</p><p class="mail-body">${esc(m.body)}</p><h3>첨부 보상</h3><div class="chips">${chips(m.rewards)}</div><p class="hint">수령 ${num(claims.length)}${claims.length >= 1000 ? "명 이상" : "명"}</p>${canWrite() ? `<div class="actions">${m.status === "active" ? '<button class="btn ghost" id="mlCancel" type="button">발송 취소</button>' : ""}<span class="spacer"></span>${trashBtn("mlTrash")}</div>` : ""}<p class="msg" id="mlMsg" role="status"></p></section>`;
+    box.innerHTML = `<section class="card"><p class="eyebrow">MAIL</p><h2>${esc(m.title)}</h2><p class="hint"><span class="tag ${m.status === "active" ? "pub" : ""}">${m.status === "active" ? "발송" : "취소"}</span> ${esc(target)} · ${esc(dt(m.starts_at))} ~ ${m.expires_at ? esc(dt(m.expires_at)) : "무제한"}${!m.target_player ? (m.include_new_accounts ? " · 신규 가입 계정 포함" : " · 기존 계정만") : ""}</p><p class="mail-body">${esc(m.body)}</p><h3>첨부 보상</h3><div class="chips">${chips(m.rewards)}</div><p class="hint">수령 ${num(claims.length)}${claims.length >= 1000 ? "명 이상" : "명"}</p>${canWrite() ? `<div class="actions">${m.status === "active" ? '<button class="btn ghost" id="mlCancel" type="button">발송 취소</button>' : ""}<span class="spacer"></span>${trashBtn("mlTrash")}</div>` : ""}<p class="msg" id="mlMsg" role="status"></p></section>`;
     if ($("mlTrash")) $("mlTrash").onclick = () => sendToTrash("mail", id, m.title, () => loadMailList(), "mlMsg");
     if ($("mlCancel"))
       $("mlCancel").onclick = async () => {
@@ -399,7 +407,7 @@ async function openMail(id) {
 async function composeMail() {
   markSelected(null);
   const list = await assets();
-  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID</label><input id="mlTarget" inputmode="numeric" autocomplete="off" placeholder="비워두면 전체 발송" /></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option><option value="custom">날짜 직접 지정</option></select><input id="mlExpire" data-datetime data-presets="+7d,+30d,+90d,today23" data-empty="만료 일시를 고르세요" aria-label="우편 만료 일시" hidden /></div></div><label for="mlStart">발송 시각</label><input id="mlStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9,nextMonday9" data-empty="비워두면 즉시 발송" aria-label="발송 시각" /><div id="mlNewBox"><label class="check"><input type="checkbox" id="mlNew" /> 발송 이후 만료 전까지 새로 가입한 계정도 받기</label><p class="hint">끄면 우편이 시작되기 전에 만들어진 계정만 받습니다. 특정 UID 발송에는 적용되지 않습니다.</p></div><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
+  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID</label><input id="mlTarget" inputmode="numeric" autocomplete="off" placeholder="비워두면 전체 발송" /></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option><option value="unlimited">무제한</option><option value="custom">날짜 직접 지정</option></select><input id="mlExpire" data-datetime data-presets="+7d,+30d,+90d,today23" data-empty="만료 일시를 고르세요" aria-label="우편 만료 일시" hidden /></div></div><label for="mlStart">발송 시각</label><input id="mlStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9,nextMonday9" data-empty="비워두면 즉시 발송" aria-label="발송 시각" /><div id="mlNewBox"><label class="check"><input type="checkbox" id="mlNew" /> 발송 이후 만료 전까지 새로 가입한 계정도 받기</label><p class="hint">끄면 우편이 시작되기 전에 만들어진 계정만 받습니다. 특정 UID 발송에는 적용되지 않습니다.</p></div><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
   const readRewards = rewardEditor($("mlRewards"), list);
   enhanceDateTimes($("opsDetail"));
   const customExpire = () => $("mlDays").value === "custom";
@@ -426,8 +434,11 @@ async function composeMail() {
       }
       const starts = parseLocal($("mlStart").value);
       const base = starts ? new Date(starts) : new Date();
-      let expires;
-      if (customExpire()) {
+      let expires = null;
+      const unlimited = $("mlDays").value === "unlimited";
+      if (unlimited) {
+        expires = null;
+      } else if (customExpire()) {
         expires = parseLocal($("mlExpire").value);
         if (!expires) throw new Error("우편 만료 일시를 고르세요.");
         if (new Date(expires) <= base) throw new Error("만료 일시는 발송 시각보다 늦어야 합니다.");
@@ -436,7 +447,7 @@ async function composeMail() {
       }
       const rewards = readRewards();
       if (!(await api.ask(`${who}에게 우편을 보낼까요?\n보상: ${rewardPlain(rewards)}`))) return;
-      await rpc("admin_send_mail", { p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_target: target, p_starts: starts, p_expires: expires, p_include_new: !uid && $("mlNew").checked });
+      await rpc("admin_send_mail", { p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_target: target, p_starts: starts, p_expires: expires, p_include_new: !uid && $("mlNew").checked, p_unlimited: unlimited });
       await loadMailList();
       $("opsDetail").innerHTML = `<section class="card"><p class="msg">발송했습니다.</p></section>`;
     } catch (e) {
@@ -623,8 +634,367 @@ async function viewTrash() {
   draw();
 }
 
+// ───────── 공통: 서브 탭 · 선택 칸 ─────────
+const subTabsHtml = (items, active, label) => `<div class="tabs ops-subtabs" role="tablist" aria-label="${esc(label)}">${items.map(([id, text]) => `<button type="button" role="tab" data-sub="${id}" aria-selected="${id === active}" class="${id === active ? "on" : ""}">${esc(text)}</button>`).join("")}</div>`;
+const bindSubTabs = (fn) => $("opsBody").querySelectorAll("[data-sub]").forEach((b) => (b.onclick = () => fn(b.dataset.sub)));
+const selectHtml = (id, label, options, value) => `<select${id ? ` id="${id}"` : ""} aria-label="${esc(label)}">${options.map(([v, t]) => `<option value="${esc(v)}"${String(v) === String(value) ? " selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const WEEKDAYS = [[1, "월"], [2, "화"], [3, "수"], [4, "목"], [5, "금"], [6, "토"], [7, "일"]];
+const ymd = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+
+// ───────── 정기 우편 ─────────
+const SLOTS = {
+  morning: { label: "아침", time: "08:00", name: "아침 푸시", title: "아침 식사 보급", body: "좋은 아침입니다! 든든한 아침 식사 보급품이 도착했어요.", hours: "6" },
+  lunch: { label: "점심", time: "12:00", name: "점심 푸시", title: "점심 식사 보급", body: "점심 시간이에요! 잠깐 쉬어 가세요. 보급품이 도착했습니다.", hours: "6" },
+  evening: { label: "저녁", time: "18:00", name: "저녁 푸시", title: "저녁 식사 보급", body: "하루 수고하셨습니다. 저녁 식사 보급품이 도착했어요.", hours: "6" },
+  hottime: { label: "핫타임", time: "20:00", name: "핫타임 푸시", title: "핫타임 보상", body: "지금은 핫타임! 제한 시간 안에 받아 가세요.", hours: "2" },
+  custom: { label: "기타", time: "09:00", name: "정기 우편", title: "", body: "", hours: "24" },
+};
+const SLOT_OPTIONS = Object.entries(SLOTS).map(([k, v]) => [k, v.label]);
+const VALID_HOURS = [["", "무제한"], ["2", "2시간"], ["6", "6시간"], ["12", "12시간"], ["24", "24시간"], ["72", "3일"], ["168", "7일"]];
+const daysLabel = (days) => (days.length === 7 ? "매일" : WEEKDAYS.filter(([n]) => days.includes(n)).map(([, t]) => t).join("·"));
+const hhmm = (t) => String(t || "").slice(0, 5);
+
+async function viewRecurringMails() {
+  shell({ title: "정기 우편", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">새 정기 우편</button>' : "", tabs: subTabsHtml(MAIL_TABS, "recurring", "우편 구분") });
+  bindSubTabs((t) => viewMails(t));
+  $("opsDetail").innerHTML = placeholder(canWrite() ? "목록에서 정기 우편을 선택하거나 새로 만드세요." : "목록에서 정기 우편을 선택하세요.");
+  if (canWrite()) $("opsNew").onclick = () => editRecurring(null);
+  await loadRecurringList();
+  try {
+    const st = await rpc("admin_recurring_mail_status", {});
+    if (!st?.scheduled) $("opsCount").insertAdjacentHTML("afterend", '<p class="msg bad">자동 발송기가 꺼져 있습니다. Supabase에서 pg_cron 확장을 켜고 마이그레이션 속 예약 블록(20261026000000_recurring_ops.sql 의 pg_cron 부분)을 다시 실행하면 정해진 시각에 자동으로 발송됩니다.</p>');
+  } catch {
+    $("opsCount").insertAdjacentHTML("afterend", '<p class="msg bad">정기 우편 DB 업데이트(20261026000000_recurring_ops.sql)가 아직 적용되지 않았습니다.</p>');
+  }
+}
+async function loadRecurringList(selectId) {
+  try {
+    const rows = await rest("recurring_mails?select=id,slot,name,title,send_time,days,enabled,last_fired_on&deleted_at=is.null&order=send_time.asc");
+    $("opsCount").textContent = `${rows.length}개`;
+    $("opsList").innerHTML = rows.map((m) => `<button class="nrow" data-id="${esc(m.id)}"><span class="tag ${m.enabled ? "pub" : ""}">${m.enabled ? "켜짐" : "꺼짐"}</span><span class="tag">${esc(SLOTS[m.slot]?.label || "기타")}</span><b>${esc(m.name)}</b><small>${esc(daysLabel(m.days))} ${esc(hhmm(m.send_time))}${m.last_fired_on ? ` · 마지막 발송 ${esc(m.last_fired_on)}` : ""}</small></button>`).join("") || '<p class="hint">정기 우편이 없습니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => editRecurring(b.dataset.id)));
+    markSelected(selectId);
+  } catch (e) {
+    $("opsList").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+  }
+}
+async function editRecurring(id) {
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
+  try {
+    const list = await assets();
+    const m = id ? (await rest(`recurring_mails?id=eq.${id}&select=*`))[0] : { slot: "morning", ...SLOTS.morning, send_time: SLOTS.morning.time, title: SLOTS.morning.title, body: SLOTS.morning.body, rewards: [], days: [1, 2, 3, 4, 5, 6, 7], valid_hours: Number(SLOTS.morning.hours), include_new_accounts: false, enabled: true };
+    if (!m) throw new Error("정기 우편을 찾을 수 없습니다.");
+    const ro = !canWrite();
+    box.innerHTML = `<section class="card"><p class="eyebrow">RECURRING MAIL</p><h2>${id ? esc(m.name) : "새 정기 우편"}</h2><p class="hint">정해진 시각이 되면 우편 한 통이 전체 플레이어에게 자동으로 발송됩니다. 하루 한 통만 나가며, 발송 시각에서 3시간이 지나도록 못 보낸 회차는 건너뜁니다(한국 시간 기준).</p>
+<div class="row2"><div><label for="rmSlot">구분</label>${selectHtml("rmSlot", "구분", SLOT_OPTIONS, m.slot)}</div><div><label for="rmName">관리 이름</label><input id="rmName" maxlength="40" value="${esc(m.name)}" /></div></div>
+<label for="rmTitle">우편 제목</label><input id="rmTitle" maxlength="80" value="${esc(m.title)}" />
+<label for="rmBody">내용</label><textarea id="rmBody" maxlength="2000">${esc(m.body)}</textarea>
+<label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="rmRewards"></div>
+<div class="row2"><div><label for="rmTime">발송 시각 (24시간제)</label><input id="rmTime" inputmode="numeric" maxlength="5" placeholder="12:00" value="${esc(hhmm(m.send_time))}" /></div><div><label for="rmHours">보관 기간</label>${selectHtml("rmHours", "보관 기간", VALID_HOURS, m.valid_hours ?? "")}</div></div>
+<label>발송 요일</label><div class="day-picks">${WEEKDAYS.map(([n, t]) => `<label class="check"><input type="checkbox" data-day="${n}"${m.days.includes(n) ? " checked" : ""} /> ${t}</label>`).join("")}</div>
+<div class="row2"><div><label for="rmFrom">시작일 <span class="hint">비우면 바로</span></label><input id="rmFrom" data-datetime="date" data-clearable data-empty="비워두면 바로 시작" aria-label="시작일" value="${esc(m.active_from || "")}" /></div><div><label for="rmUntil">종료일 <span class="hint">비우면 계속</span></label><input id="rmUntil" data-datetime="date" data-clearable data-empty="비워두면 계속" aria-label="종료일" value="${esc(m.active_until || "")}" /></div></div>
+<label class="check"><input type="checkbox" id="rmNew"${m.include_new_accounts ? " checked" : ""} /> 발송 이후 새로 가입한 계정도 받기</label>
+<label class="check"><input type="checkbox" id="rmOn"${m.enabled ? " checked" : ""} /> 자동 발송 켜기</label>
+${ro ? "" : `<div class="actions"><button class="btn primary" id="rmSave" type="button">저장</button>${id ? '<button class="btn ghost" id="rmDelete" type="button">삭제</button>' : ""}</div>`}
+<p class="msg" id="rmMsg" role="status"></p></section>`;
+    const readRewards = rewardEditor($("rmRewards"), list, m.rewards);
+    enhanceDateTimes(box);
+    if (ro) box.querySelectorAll("input,select,textarea,button").forEach((el) => (el.disabled = true));
+    // 새 정기 우편에서 구분을 바꾸면 그 구분의 기본 값으로 채운다. 저장된 우편은 건드리지 않는다.
+    $("rmSlot").onchange = () => {
+      if (id) return;
+      const s = SLOTS[$("rmSlot").value];
+      $("rmName").value = s.name;
+      $("rmTitle").value = s.title;
+      $("rmBody").value = s.body;
+      $("rmTime").value = s.time;
+      setVal($("rmHours"), s.hours);
+    };
+    if ($("rmSave"))
+      $("rmSave").onclick = async () => {
+        try {
+          const time = $("rmTime").value.trim();
+          if (!TIME_RE.test(time)) throw new Error("발송 시각은 00:00~23:59 형식으로 입력하세요.");
+          const days = [...box.querySelectorAll("[data-day]")].filter((c) => c.checked).map((c) => Number(c.dataset.day));
+          if (!days.length) throw new Error("발송 요일을 하나 이상 고르세요.");
+          const from = $("rmFrom").value.trim();
+          const until = $("rmUntil").value.trim();
+          if ((from && !DAY_RE.test(from)) || (until && !DAY_RE.test(until))) throw new Error("시작일·종료일은 YYYY-MM-DD 형식입니다.");
+          if (from && until && until < from) throw new Error("종료일이 시작일보다 빠릅니다.");
+          const r = await rpc("admin_save_recurring_mail", { p: { id: id || null, slot: $("rmSlot").value, name: $("rmName").value, title: $("rmTitle").value, body: $("rmBody").value, rewards: readRewards(), send_time: time, days, valid_hours: $("rmHours").value || null, include_new_accounts: $("rmNew").checked, active_from: from || null, active_until: until || null, enabled: $("rmOn").checked } });
+          await loadRecurringList(r.id);
+          await editRecurring(r.id);
+          notify("rmMsg", "저장했습니다.");
+        } catch (e) {
+          notify("rmMsg", e.message, true);
+        }
+      };
+    if ($("rmDelete"))
+      $("rmDelete").onclick = async () => {
+        if (!(await api.ask(`「${m.name}」을(를) 삭제할까요? 이미 발송된 우편은 그대로 남습니다.`))) return;
+        try {
+          await rpc("admin_set_recurring_mail", { p_id: id, p_delete: true });
+          $("opsDetail").innerHTML = placeholder("삭제했습니다.");
+          await loadRecurringList();
+        } catch (e) {
+          notify("rmMsg", e.message, true);
+        }
+      };
+  } catch (e) {
+    fail(box, e);
+  }
+}
+
+// ───────── 패치노트 ─────────
+const PATCH_KINDS = [["new", "신규"], ["improve", "개선"], ["fix", "수정"], ["balance", "밸런스"], ["etc", "기타"]];
+async function viewPatchNotes() {
+  shell({ title: "패치노트", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">새 패치노트</button>' : "" });
+  $("opsDetail").innerHTML = placeholder("1.0.0 정식 출시 이후의 패치부터 기록합니다.");
+  if (canWrite()) $("opsNew").onclick = () => editPatchNote(null);
+  await loadPatchList();
+}
+async function loadPatchList(selectId) {
+  try {
+    const rows = await rest("patch_notes?select=id,version,title,released_at&deleted_at=is.null&order=released_at.desc&limit=200");
+    $("opsCount").textContent = `${rows.length}개`;
+    $("opsList").innerHTML = rows.map((n) => `<button class="nrow" data-id="${esc(n.id)}"><span class="tag pub">v${esc(n.version)}</span><b>${esc(n.title || "패치노트")}</b><small>${esc(dt(n.released_at))}</small></button>`).join("") || '<p class="hint">기록이 없습니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => editPatchNote(b.dataset.id)));
+    markSelected(selectId);
+  } catch (e) {
+    $("opsList").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+  }
+}
+const bumpPatch = (v) => {
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v || "");
+  return m ? `${m[1]}.${m[2]}.${Number(m[3]) + 1}` : "1.0.1";
+};
+async function editPatchNote(id) {
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
+  try {
+    let n;
+    if (id) n = (await rest(`patch_notes?id=eq.${id}&select=*`))[0];
+    else {
+      const [last] = await rest("patch_notes?select=version&deleted_at=is.null&order=released_at.desc&limit=1");
+      n = { version: bumpPatch(last?.version), title: "", released_at: new Date().toISOString(), items: [], note: "" };
+    }
+    if (!n) throw new Error("패치노트를 찾을 수 없습니다.");
+    const ro = !canWrite();
+    box.innerHTML = `<section class="card"><p class="eyebrow">PATCH NOTE</p><h2>${id ? `v${esc(n.version)}` : "새 패치노트"}</h2><p class="hint">1.0.0 정식 출시 이후의 패치부터 기록합니다. 1.0.0 미만 버전은 저장되지 않습니다.</p>
+<div class="row2"><div><label for="pnVersion">버전</label><input id="pnVersion" maxlength="20" placeholder="1.0.1" value="${esc(n.version)}" /></div><div><label for="pnDate">배포 일시</label><input id="pnDate" data-datetime aria-label="배포 일시" value="${esc(fmtLocal(new Date(n.released_at)))}" /></div></div>
+<label for="pnTitle">제목 <span class="hint">선택</span></label><input id="pnTitle" maxlength="120" value="${esc(n.title)}" />
+<label>변경 내용</label><div id="pnItems" class="patch-items"></div>${ro ? "" : '<button class="btn ghost" type="button" id="pnAdd">+ 항목 추가</button>'}
+<label for="pnNote">메모 <span class="hint">선택 · 운영진용</span></label><textarea id="pnNote" maxlength="4000">${esc(n.note)}</textarea>
+${ro ? "" : `<div class="actions"><button class="btn primary" id="pnSave" type="button">저장</button>${id ? '<button class="btn ghost" id="pnDelete" type="button">삭제</button>' : ""}</div>`}
+<p class="msg" id="pnMsg" role="status"></p></section>`;
+    enhanceDateTimes(box);
+    const rows = $("pnItems");
+    const add = (kind = "new", text = "") => {
+      const row = document.createElement("div");
+      row.className = "reward-row";
+      row.innerHTML = `${selectHtml("", "구분", PATCH_KINDS, kind)}<input type="text" maxlength="500" aria-label="내용" placeholder="변경 내용" value="${esc(text)}" /><button class="btn ghost" type="button" data-rm>제거</button>`;
+      row.querySelector("[data-rm]").onclick = () => row.remove();
+      rows.append(row);
+    };
+    (n.items.length ? n.items : [{ kind: "new", text: "" }]).forEach((it) => add(it.kind, it.text));
+    if (ro) box.querySelectorAll("input,select,textarea,button").forEach((el) => (el.disabled = true));
+    if ($("pnAdd")) $("pnAdd").onclick = () => add();
+    if ($("pnSave"))
+      $("pnSave").onclick = async () => {
+        try {
+          const version = $("pnVersion").value.trim();
+          if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("버전은 1.0.1 처럼 숫자 세 마디로 입력하세요.");
+          if (compareVersion(version, "1.0.0") < 0) throw new Error("패치노트는 1.0.0 정식 출시 이후 버전부터 기록합니다.");
+          const items = [...rows.querySelectorAll(".reward-row")].map((r) => ({ kind: r.querySelector("select").value, text: r.querySelector("input").value.trim() })).filter((i) => i.text);
+          if (!items.length) throw new Error("변경 내용을 하나 이상 적으세요.");
+          const r = await rpc("admin_save_patch_note", { p: { id: id || null, version, title: $("pnTitle").value, released_at: parseLocal($("pnDate").value), items, note: $("pnNote").value } });
+          await loadPatchList(r.id);
+          await editPatchNote(r.id);
+          notify("pnMsg", "저장했습니다.");
+        } catch (e) {
+          notify("pnMsg", /unique|duplicate/i.test(e.message) ? "같은 버전의 패치노트가 이미 있습니다." : e.message, true);
+        }
+      };
+    if ($("pnDelete"))
+      $("pnDelete").onclick = async () => {
+        if (!(await api.ask(`v${n.version} 패치노트를 삭제할까요?`))) return;
+        try {
+          await rpc("admin_delete_patch_note", { p_id: id });
+          $("opsDetail").innerHTML = placeholder("삭제했습니다.");
+          await loadPatchList();
+        } catch (e) {
+          notify("pnMsg", e.message, true);
+        }
+      };
+  } catch (e) {
+    fail(box, e);
+  }
+}
+function compareVersion(a, b) {
+  const x = a.split(".").map(Number);
+  const y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
+}
+
+// ───────── 정기 이벤트(주단위 순환 미니컨텐츠) ─────────
+const EVENT_KINDS = [["wheel", "돌림판"], ["sand_dig", "모래캐기"], ["tarot", "타로집"], ["blacksmith", "대장장이(블랙잭)"], ["custom", "기타"]];
+const EVENT_TABS = [["rotation", "주간 편성"], ["contents", "컨텐츠"]];
+const kindLabel = (c) => `${EVENT_KINDS.find(([k]) => k === c.kind)?.[1] || c.kind}${c.kind === "wheel" ? ` ${c.variant}형` : ""}`;
+function kstMonday(offsetWeeks = 0) {
+  const k = new Date(Date.now() + 9 * 3600000);
+  k.setUTCDate(k.getUTCDate() - ((k.getUTCDay() + 6) % 7) + offsetWeeks * 7);
+  return k;
+}
+async function viewEvents(tab = "rotation") {
+  await assets();
+  if (tab === "contents") return viewEventContents();
+  const contents = (await rest("event_contents?select=id,kind,variant,name,enabled&deleted_at=is.null&order=created_at.asc")).filter((c) => c.enabled);
+  const start = kstMonday(0);
+  const rot = await rest(`event_rotation?select=week_start,content_id&week_start=gte.${ymd(start)}&order=week_start`);
+  const byWeek = Object.fromEntries(rot.map((r) => [r.week_start, r.content_id]));
+  const weeks = Array.from({ length: 8 }, (_, i) => {
+    const s = kstMonday(i);
+    const e = new Date(s);
+    e.setUTCDate(e.getUTCDate() + 6);
+    return { key: ymd(s), label: `${s.getUTCMonth() + 1}/${s.getUTCDate()} ~ ${e.getUTCMonth() + 1}/${e.getUTCDate()}`, now: i === 0 };
+  });
+  const options = [["", "비워 둠"], ...contents.map((c) => [c.id, `${c.name} · ${kindLabel(c)}`])];
+  $("opsBody").innerHTML = `${subTabsHtml(EVENT_TABS, "rotation", "정기 이벤트 구분")}<div class="ops-single"><section class="card"><p class="eyebrow">WEEKLY ROTATION</p><h2>주간 편성</h2><p class="hint">월요일 0시(한국 시간)에 바뀌는 주 단위 순환입니다. 한 주에 정기 이벤트 하나가 열리고, 비운 주는 열리지 않습니다. 게임 쪽 컨텐츠 구현은 별도 작업이며 이 편성은 그 기준 데이터입니다.</p>${contents.length ? "" : '<p class="msg bad">켜져 있는 컨텐츠가 없습니다. 컨텐츠 탭에서 먼저 만드세요.</p>'}<div class="week-list">${weeks.map((w) => `<div class="week-row${w.now ? " now" : ""}"><span class="week-label"><b>${esc(w.label)}</b>${w.now ? ' <span class="tag pub">이번 주</span>' : ""}</span>${selectHtml(`wk-${w.key}`, `${w.label} 편성`, options, byWeek[w.key] || "")}</div>`).join("")}</div>${canWrite() ? '<div class="actions"><button class="btn primary" id="rtSave" type="button">편성 저장</button><button class="btn ghost" id="rtFill" type="button">빈 주를 순서대로 채우기</button></div>' : ""}<p class="msg" id="rtMsg" role="status"></p></section></div>`;
+  bindSubTabs((t) => viewEvents(t));
+  if (!canWrite()) return $("opsBody").querySelectorAll(".week-row select").forEach((s) => (s.disabled = true));
+  $("rtFill").onclick = () => {
+    if (!contents.length) return notify("rtMsg", "켜져 있는 컨텐츠가 없습니다.", true);
+    const sels = weeks.map((w) => $(`wk-${w.key}`));
+    let next = 0;
+    sels.forEach((s) => {
+      if (s.value) {
+        const i = contents.findIndex((c) => c.id === s.value);
+        if (i >= 0) next = i + 1;
+        return;
+      }
+      setVal(s, contents[next % contents.length].id);
+      next++;
+    });
+    notify("rtMsg", "빈 주를 채웠습니다. 저장해야 반영됩니다.");
+  };
+  $("rtSave").onclick = async () => {
+    try {
+      const p_weeks = weeks.map((w) => ({ week_start: w.key, content_id: $(`wk-${w.key}`).value || null })).filter((w) => w.content_id || byWeek[w.week_start]);
+      await rpc("admin_set_event_rotation", { p_weeks });
+      notify("rtMsg", "편성을 저장했습니다.");
+    } catch (e) {
+      notify("rtMsg", e.message, true);
+    }
+  };
+}
+async function viewEventContents() {
+  shell({ title: "정기 이벤트 컨텐츠", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">새 컨텐츠</button>' : "", tabs: subTabsHtml(EVENT_TABS, "contents", "정기 이벤트 구분") });
+  bindSubTabs((t) => viewEvents(t));
+  $("opsDetail").innerHTML = placeholder(canWrite() ? "목록에서 컨텐츠를 선택하거나 새로 만드세요." : "목록에서 컨텐츠를 선택하세요.");
+  if (canWrite()) $("opsNew").onclick = () => editEventContent(null);
+  await loadEventContentList();
+}
+async function loadEventContentList(selectId) {
+  try {
+    const rows = await rest("event_contents?select=id,kind,variant,name,currency,enabled&deleted_at=is.null&order=created_at.asc");
+    $("opsCount").textContent = `${rows.length}개`;
+    $("opsList").innerHTML = rows.map((c) => `<button class="nrow" data-id="${esc(c.id)}"><span class="tag ${c.enabled ? "pub" : ""}">${c.enabled ? "켜짐" : "꺼짐"}</span><span class="tag">${esc(kindLabel(c))}</span><b>${esc(c.name)}</b><small>재화 ${esc(c.currency)}</small></button>`).join("") || '<p class="hint">컨텐츠가 없습니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => editEventContent(b.dataset.id)));
+    markSelected(selectId);
+  } catch (e) {
+    $("opsList").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+  }
+}
+// 보상표 편집기: 칸마다 가중치(확률 비례)와 보상 목록. 확률은 가중치 합으로 나눠 바로 보여 준다.
+function rewardTableEditor(host, list, initial) {
+  host.innerHTML = '<div class="entry-rows"></div><button class="btn ghost" type="button" data-add-entry>+ 보상 칸 추가</button><p class="hint" data-sum></p>';
+  const rows = host.querySelector(".entry-rows");
+  const refresh = () => {
+    const ws = [...rows.querySelectorAll("[data-w]")].map((i) => Number(i.value.replace(/,/g, "")) || 0);
+    const total = ws.reduce((a, b) => a + b, 0);
+    rows.querySelectorAll("[data-pct]").forEach((el, i) => (el.textContent = total ? `${((ws[i] / total) * 100).toFixed(2).replace(/\.?0+$/, "")}%` : "—"));
+    host.querySelector("[data-sum]").textContent = total ? `가중치 합계 ${num(total)}` : "보상 칸이 없습니다.";
+  };
+  const add = (entry = { weight: "", rewards: [] }) => {
+    const row = document.createElement("div");
+    row.className = "entry-card";
+    row.innerHTML = `<div class="entry-head"><label>가중치 <input type="text" inputmode="numeric" data-w aria-label="가중치" value="${esc(entry.weight)}" /></label><span class="tag" data-pct>—</span><button class="btn ghost" type="button" data-rm>칸 제거</button></div><div data-rewards></div>`;
+    const read = rewardEditor(row.querySelector("[data-rewards]"), list, entry.rewards || []);
+    row.read = read;
+    row.querySelector("[data-rm]").onclick = () => (row.remove(), refresh());
+    row.querySelector("[data-w]").oninput = refresh;
+    rows.append(row);
+    refresh();
+  };
+  host.querySelector("[data-add-entry]").onclick = () => add();
+  (initial.length ? initial : [{ weight: 100, rewards: [] }]).forEach(add);
+  return () => [...rows.querySelectorAll(".entry-card")].map((row) => ({ weight: Number(row.querySelector("[data-w]").value.replace(/,/g, "")), rewards: row.read() }));
+}
+async function editEventContent(id) {
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
+  try {
+    const list = await assets();
+    const c = id ? (await rest(`event_contents?id=eq.${id}&select=*`))[0] : { kind: "wheel", variant: 1, name: "", description: "", currency: "eventCoin", cost_per_play: 1, daily_free_plays: 0, reward_table: [], enabled: true };
+    if (!c) throw new Error("컨텐츠를 찾을 수 없습니다.");
+    const ro = !canWrite();
+    box.innerHTML = `<section class="card"><p class="eyebrow">EVENT CONTENT</p><h2>${id ? esc(c.name) : "새 컨텐츠"}</h2><p class="hint">이벤트 재화를 쓰는 미니컨텐츠의 정의입니다. 주간 편성 탭에서 어느 주에 열지 정합니다.</p>
+<div class="row2"><div><label for="ecKind">종류</label>${selectHtml("ecKind", "종류", EVENT_KINDS, c.kind)}</div><div id="ecVariantBox"><label for="ecVariant">바리에이션 <span class="hint">돌림판 1~3형</span></label>${selectHtml("ecVariant", "바리에이션", [[1, "1형"], [2, "2형"], [3, "3형"]], c.variant)}</div></div>
+<label for="ecName">이름</label><input id="ecName" maxlength="40" value="${esc(c.name)}" />
+<label for="ecDesc">설명 <span class="hint">선택</span></label><textarea id="ecDesc" maxlength="500">${esc(c.description)}</textarea>
+<div class="row2"><div><label for="ecCurrency">이벤트 재화 키</label><input id="ecCurrency" maxlength="32" placeholder="eventCoin" value="${esc(c.currency)}" /></div><div><label for="ecCost">1회 소모량</label><input id="ecCost" inputmode="numeric" value="${esc(c.cost_per_play)}" /></div></div>
+<div class="row2"><div><label for="ecFree">하루 무료 횟수</label><input id="ecFree" inputmode="numeric" value="${esc(c.daily_free_plays)}" /></div><div><label class="check ec-on"><input type="checkbox" id="ecOn"${c.enabled ? " checked" : ""} /> 사용</label></div></div>
+<label>보상표 <span class="hint">가중치 비율대로 나옵니다. 플레이어에게 공개할 확률의 기준입니다.</span></label><div id="ecTable"></div>
+${ro ? "" : `<div class="actions"><button class="btn primary" id="ecSave" type="button">저장</button>${id ? '<button class="btn ghost" id="ecDelete" type="button">삭제</button>' : ""}</div>`}
+<p class="msg" id="ecMsg" role="status"></p></section>`;
+    const readTable = rewardTableEditor($("ecTable"), list, c.reward_table);
+    const syncVariant = () => ($("ecVariantBox").hidden = $("ecKind").value !== "wheel");
+    $("ecKind").onchange = syncVariant;
+    syncVariant();
+    if (ro) box.querySelectorAll("input,select,textarea,button").forEach((el) => (el.disabled = true));
+    const num0 = (v, label) => {
+      const n = Number(String(v).replace(/,/g, ""));
+      if (!Number.isInteger(n) || n < 0) throw new Error(`${label}은(는) 0 이상의 정수입니다.`);
+      return n;
+    };
+    if ($("ecSave"))
+      $("ecSave").onclick = async () => {
+        try {
+          const table = readTable();
+          if (table.some((e) => !(e.weight >= 1))) throw new Error("모든 보상 칸에 1 이상의 가중치를 넣으세요.");
+          const r = await rpc("admin_save_event_content", { p: { id: id || null, kind: $("ecKind").value, variant: Number($("ecVariant").value), name: $("ecName").value, description: $("ecDesc").value, currency: $("ecCurrency").value.trim(), cost_per_play: num0($("ecCost").value, "1회 소모량"), daily_free_plays: num0($("ecFree").value, "하루 무료 횟수"), reward_table: table, enabled: $("ecOn").checked } });
+          await loadEventContentList(r.id);
+          await editEventContent(r.id);
+          notify("ecMsg", "저장했습니다.");
+        } catch (e) {
+          notify("ecMsg", e.message, true);
+        }
+      };
+    if ($("ecDelete"))
+      $("ecDelete").onclick = async () => {
+        if (!(await api.ask(`「${c.name}」을(를) 삭제할까요?`))) return;
+        try {
+          await rpc("admin_delete_event_content", { p_id: id });
+          $("opsDetail").innerHTML = placeholder("삭제했습니다.");
+          await loadEventContentList();
+        } catch (e) {
+          notify("ecMsg", e.message, true);
+        }
+      };
+  } catch (e) {
+    fail(box, e);
+  }
+}
+
 // ───────── 감사 로그 ─────────
-const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정", player_delete: "계정 삭제", trash_move: "휴지통 이동", trash_restore: "휴지통 복구", trash_purge: "영구 삭제" };
+const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정", player_delete: "계정 삭제", trash_move: "휴지통 이동", trash_restore: "휴지통 복구", trash_purge: "영구 삭제", recurring_mail_save: "정기 우편 저장", recurring_mail_set: "정기 우편 상태", patch_note_save: "패치노트 저장", patch_note_delete: "패치노트 삭제", event_content_save: "정기 이벤트 저장", event_content_delete: "정기 이벤트 삭제", event_rotation_set: "정기 이벤트 편성" };
 async function viewAudit() {
   const rows = await rest("admin_audit_log?select=id,actor,action,target,detail,at&order=id.desc&limit=200");
   const actions = [...new Set(rows.map((r) => r.action))];
@@ -637,7 +1007,7 @@ async function viewAudit() {
   draw();
 }
 
-const RENDER = { tickets: viewTickets, players: viewPlayers, mails: viewMails, coupons: viewCoupons, config: viewConfig, trash: viewTrash, audit: viewAudit };
+const RENDER = { patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit };
 
 export async function openView(id) {
   const view = VIEWS.find((v) => v.id === id && v.roles.includes(api.role));
