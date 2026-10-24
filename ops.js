@@ -652,7 +652,8 @@ const SLOTS = {
   custom: { label: "기타", time: "09:00", name: "정기 우편", title: "", body: "", hours: "24" },
 };
 const SLOT_OPTIONS = Object.entries(SLOTS).map(([k, v]) => [k, v.label]);
-const VALID_HOURS = [["", "무제한"], ["2", "2시간"], ["6", "6시간"], ["12", "12시간"], ["24", "24시간"], ["72", "3일"], ["168", "7일"]];
+const VALID_HOURS = [["", "무제한"], ["2", "2시간"], ["4", "4시간"], ["6", "6시간"], ["12", "12시간"], ["24", "24시간"], ["72", "3일"], ["168", "7일"], ["custom", "직접 입력"]];
+const PRESET_HOURS = VALID_HOURS.map(([v]) => v).filter((v) => v && v !== "custom");
 const daysLabel = (days) => (days.length === 7 ? "매일" : WEEKDAYS.filter(([n]) => days.includes(n)).map(([, t]) => t).join("·"));
 const hhmm = (t) => String(t || "").slice(0, 5);
 
@@ -694,7 +695,7 @@ async function editRecurring(id) {
 <label for="rmTitle">우편 제목</label><input id="rmTitle" maxlength="80" value="${esc(m.title)}" />
 <label for="rmBody">내용</label><textarea id="rmBody" maxlength="2000">${esc(m.body)}</textarea>
 <label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="rmRewards"></div>
-<div class="row2"><div><label for="rmTime">발송 시각 (24시간제)</label><input id="rmTime" inputmode="numeric" maxlength="5" placeholder="12:00" value="${esc(hhmm(m.send_time))}" /></div><div><label for="rmHours">보관 기간</label>${selectHtml("rmHours", "보관 기간", VALID_HOURS, m.valid_hours ?? "")}</div></div>
+<div class="row2"><div><label for="rmTime">발송 시각 (24시간제)</label><input id="rmTime" inputmode="numeric" maxlength="5" placeholder="12:00" value="${esc(hhmm(m.send_time))}" /></div><div><label for="rmHours">보관 기간</label>${selectHtml("rmHours", "보관 기간", VALID_HOURS, m.valid_hours == null ? "" : PRESET_HOURS.includes(String(m.valid_hours)) ? String(m.valid_hours) : "custom")}<div id="rmHoursBox" class="hours-input"><input id="rmHoursCustom" inputmode="numeric" maxlength="4" aria-label="보관 시간(시간 단위)" placeholder="예: 10" value="${m.valid_hours != null && !PRESET_HOURS.includes(String(m.valid_hours)) ? esc(m.valid_hours) : ""}" /><span class="hint">시간 (1~8760)</span></div></div></div>
 <label>발송 요일</label><div class="day-picks">${WEEKDAYS.map(([n, t]) => `<label class="check"><input type="checkbox" data-day="${n}"${m.days.includes(n) ? " checked" : ""} /> ${t}</label>`).join("")}</div>
 <div class="row2"><div><label for="rmFrom">시작일 <span class="hint">비우면 바로</span></label><input id="rmFrom" data-datetime="date" data-clearable data-empty="비워두면 바로 시작" aria-label="시작일" value="${esc(m.active_from || "")}" /></div><div><label for="rmUntil">종료일 <span class="hint">비우면 계속</span></label><input id="rmUntil" data-datetime="date" data-clearable data-empty="비워두면 계속" aria-label="종료일" value="${esc(m.active_until || "")}" /></div></div>
 <label class="check"><input type="checkbox" id="rmNew"${m.include_new_accounts ? " checked" : ""} /> 발송 이후 새로 가입한 계정도 받기</label>
@@ -705,6 +706,9 @@ ${ro ? "" : `<div class="actions"><button class="btn primary" id="rmSave" type="
     enhanceDateTimes(box);
     if (ro) box.querySelectorAll("input,select,textarea,button").forEach((el) => (el.disabled = true));
     // 새 정기 우편에서 구분을 바꾸면 그 구분의 기본 값으로 채운다. 저장된 우편은 건드리지 않는다.
+    const syncHours = () => ($("rmHoursBox").hidden = $("rmHours").value !== "custom");
+    $("rmHours").onchange = syncHours;
+    syncHours();
     $("rmSlot").onchange = () => {
       if (id) return;
       const s = SLOTS[$("rmSlot").value];
@@ -713,6 +717,7 @@ ${ro ? "" : `<div class="actions"><button class="btn primary" id="rmSave" type="
       $("rmBody").value = s.body;
       $("rmTime").value = s.time;
       setVal($("rmHours"), s.hours);
+      syncHours();
     };
     if ($("rmSave"))
       $("rmSave").onclick = async () => {
@@ -725,7 +730,12 @@ ${ro ? "" : `<div class="actions"><button class="btn primary" id="rmSave" type="
           const until = $("rmUntil").value.trim();
           if ((from && !DAY_RE.test(from)) || (until && !DAY_RE.test(until))) throw new Error("시작일·종료일은 YYYY-MM-DD 형식입니다.");
           if (from && until && until < from) throw new Error("종료일이 시작일보다 빠릅니다.");
-          const r = await rpc("admin_save_recurring_mail", { p: { id: id || null, slot: $("rmSlot").value, name: $("rmName").value, title: $("rmTitle").value, body: $("rmBody").value, rewards: readRewards(), send_time: time, days, valid_hours: $("rmHours").value || null, include_new_accounts: $("rmNew").checked, active_from: from || null, active_until: until || null, enabled: $("rmOn").checked } });
+          let hours = $("rmHours").value;
+          if (hours === "custom") {
+            hours = $("rmHoursCustom").value.trim();
+            if (!/^\d{1,4}$/.test(hours) || Number(hours) < 1 || Number(hours) > 8760) throw new Error("보관 시간은 1~8760 사이의 정수(시간 단위)로 입력하세요.");
+          }
+          const r = await rpc("admin_save_recurring_mail", { p: { id: id || null, slot: $("rmSlot").value, name: $("rmName").value, title: $("rmTitle").value, body: $("rmBody").value, rewards: readRewards(), send_time: time, days, valid_hours: hours || null, include_new_accounts: $("rmNew").checked, active_from: from || null, active_until: until || null, enabled: $("rmOn").checked } });
           await loadRecurringList(r.id);
           await editRecurring(r.id);
           notify("rmMsg", "저장했습니다.");

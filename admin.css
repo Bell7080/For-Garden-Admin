@@ -1554,3 +1554,6 @@ input[type="range"]:disabled {
 .week-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .ec-on { margin-top: 28px; }
 @media (max-width: 860px) { .week-row { grid-template-columns: 1fr; } }
+.hours-input { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.hours-input input { width: 110px; }
+.hours-input[hidden] { display: none; }
