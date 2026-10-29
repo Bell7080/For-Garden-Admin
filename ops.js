@@ -3,7 +3,7 @@
 import { enhanceDateTimes } from "./ui/datetime.js";
 
 const STATUS = { open: "접수", in_progress: "처리 중", answered: "답변 완료", closed: "종료" };
-const CATEGORY = { inquiry: "문의", bug: "버그", report: "신고", other: "기타" };
+const CATEGORY = { inquiry: "문의", bug: "버그", report: "신고", privacy: "개인정보·삭제", other: "기타" };
 const PLAYER_STATUS = { active: "정상", suspended: "정지", banned: "영구 제한", deleted: "삭제됨" };
 const prevNames = (p) => (Array.isArray(p.nickname_history) ? p.nickname_history.map((h) => h.name).filter(Boolean).reverse() : []);
 const SOURCE = { game: "게임", web: "홈페이지" };
@@ -151,7 +151,7 @@ function rewardEditor(host, list, initial = []) {
 async function viewTickets() {
   shell({
     title: "문의·신고",
-    filters: `<input id="tkQuery" placeholder="번호(#12) 또는 제목 검색" autocomplete="off" aria-label="문의 검색" /><div class="filters"><select id="tkStatus" aria-label="상태"><option value="">상태 전체</option><option value="open">접수</option><option value="in_progress">처리 중</option><option value="answered">답변 완료</option><option value="closed">종료</option></select><select id="tkCat" aria-label="분류"><option value="">분류 전체</option><option value="inquiry">문의</option><option value="bug">버그</option><option value="report">신고</option><option value="other">기타</option></select></div><select id="tkSource" aria-label="접수 경로"><option value="">경로 전체</option><option value="game">게임</option><option value="web">홈페이지</option></select>`,
+    filters: `<input id="tkQuery" placeholder="번호(#12) 또는 제목 검색" autocomplete="off" aria-label="문의 검색" /><div class="filters"><select id="tkStatus" aria-label="상태"><option value="">상태 전체</option><option value="open">접수</option><option value="in_progress">처리 중</option><option value="answered">답변 완료</option><option value="closed">종료</option></select><select id="tkCat" aria-label="분류"><option value="">분류 전체</option><option value="inquiry">문의</option><option value="bug">버그</option><option value="report">신고</option><option value="privacy">개인정보·삭제</option><option value="other">기타</option></select></div><select id="tkSource" aria-label="접수 경로"><option value="">경로 전체</option><option value="game">게임</option><option value="web">홈페이지</option></select>`,
   });
   $("opsDetail").innerHTML = placeholder("목록에서 문의를 선택하세요.");
   const load = async () => {
