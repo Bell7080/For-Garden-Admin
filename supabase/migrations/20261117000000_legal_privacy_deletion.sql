@@ -74,7 +74,7 @@ begin
   return jsonb_build_object('ok', true);
 end $fn$;
 
--- ③ 계정 삭제 요청. 유예 7일([탈퇴 유예 기간] — 운영자 확정, 바꾸면 이 값과 /legal/withdrawal을 함께 고친다).
+-- ③ 계정 삭제 요청. 유예 7일(응태 확정 2026-10-30 — 바꾸면 이 값과 /legal/withdrawal 원고를 함께 고친다).
 create table if not exists public.account_deletion_requests (
   user_id uuid primary key references auth.users(id) on delete cascade,
   requested_at timestamptz not null default now(),
