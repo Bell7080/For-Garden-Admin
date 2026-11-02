@@ -95,7 +95,7 @@ test("정기 이벤트: 보상표 검증, 주 편성, 현재 주 조회, 편성 
     const ev = { kind: "wheel", variant: 2, name: "행운의 돌림판 2", currency: "eventCoin", cost_per_play: 10, reward_table: [{ weight: 70, rewards: [{ asset: "gold", amount: 1000 }] }, { weight: 30, rewards: [{ asset: "gems", amount: 50 }] }] };
     const { id } = await sv(ev);
     await assert.rejects(sv({ ...ev, reward_table: [{ weight: 0, rewards: [] }] }), /invalid_rewards/);
-    const monday = (await db.query("select date_trunc('week', (now() at time zone 'Asia/Seoul'))::date d")).rows[0].d;
+    const monday = (await db.query("select date_trunc('week', (now() at time zone 'UTC'))::date d")).rows[0].d;
     const iso = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
     await assert.rejects(db.query("select public.admin_set_event_rotation($1)", [JSON.stringify([{ week_start: "2026-10-27", content_id: id }])]), /invalid_period/);
     await db.query("select public.admin_set_event_rotation($1)", [JSON.stringify([{ week_start: iso, content_id: id }])]);

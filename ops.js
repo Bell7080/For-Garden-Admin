@@ -932,8 +932,8 @@ function compareVersion(a, b) {
 const EVENT_KINDS = [["wheel", "돌림판"], ["sand_dig", "모래캐기"], ["tarot", "타로집"], ["blacksmith", "대장장이(블랙잭)"], ["custom", "기타"]];
 const EVENT_TABS = [["rotation", "주간 편성"], ["contents", "컨텐츠"]];
 const kindLabel = (c) => `${EVENT_KINDS.find(([k]) => k === c.kind)?.[1] || c.kind}${c.kind === "wheel" ? ` ${c.variant}형` : ""}`;
-function kstMonday(offsetWeeks = 0) {
-  const k = new Date(Date.now() + 9 * 3600000);
+function utcMonday(offsetWeeks = 0) {
+  const k = new Date(Date.now());
   k.setUTCDate(k.getUTCDate() - ((k.getUTCDay() + 6) % 7) + offsetWeeks * 7);
   return k;
 }
@@ -941,17 +941,17 @@ async function viewEvents(tab = "rotation") {
   await assets();
   if (tab === "contents") return viewEventContents();
   const contents = (await rest("event_contents?select=id,kind,variant,name,enabled&deleted_at=is.null&order=created_at.asc")).filter((c) => c.enabled);
-  const start = kstMonday(0);
+  const start = utcMonday(0);
   const rot = await rest(`event_rotation?select=week_start,content_id&week_start=gte.${ymd(start)}&order=week_start`);
   const byWeek = Object.fromEntries(rot.map((r) => [r.week_start, r.content_id]));
   const weeks = Array.from({ length: 8 }, (_, i) => {
-    const s = kstMonday(i);
+    const s = utcMonday(i);
     const e = new Date(s);
     e.setUTCDate(e.getUTCDate() + 6);
     return { key: ymd(s), label: `${s.getUTCMonth() + 1}/${s.getUTCDate()} ~ ${e.getUTCMonth() + 1}/${e.getUTCDate()}`, now: i === 0 };
   });
   const options = [["", "비워 둠"], ...contents.map((c) => [c.id, `${c.name} · ${kindLabel(c)}`])];
-  $("opsBody").innerHTML = `${subTabsHtml(EVENT_TABS, "rotation", "정기 이벤트 구분")}<div class="ops-single"><section class="card"><p class="eyebrow">WEEKLY ROTATION</p><h2>주간 편성</h2><p class="hint">월요일 0시(한국 시간)에 바뀌는 주 단위 순환입니다. 한 주에 정기 이벤트 하나가 열리고, 비운 주는 열리지 않습니다. 게임 쪽 컨텐츠 구현은 별도 작업이며 이 편성은 그 기준 데이터입니다.</p>${contents.length ? "" : '<p class="msg bad">켜져 있는 컨텐츠가 없습니다. 컨텐츠 탭에서 먼저 만드세요.</p>'}<div class="week-list">${weeks.map((w) => `<div class="week-row${w.now ? " now" : ""}"><span class="week-label"><b>${esc(w.label)}</b>${w.now ? ' <span class="tag pub">이번 주</span>' : ""}</span>${selectHtml(`wk-${w.key}`, `${w.label} 편성`, options, byWeek[w.key] || "")}</div>`).join("")}</div>${canWrite() ? '<div class="actions"><button class="btn primary" id="rtSave" type="button">편성 저장</button><button class="btn ghost" id="rtFill" type="button">빈 주를 순서대로 채우기</button></div>' : ""}<p class="msg" id="rtMsg" role="status"></p></section></div>`;
+  $("opsBody").innerHTML = `${subTabsHtml(EVENT_TABS, "rotation", "정기 이벤트 구분")}<div class="ops-single"><section class="card"><p class="eyebrow">WEEKLY ROTATION</p><h2>주간 편성</h2><p class="hint">월요일 0시(UTC · 한국 시간 09:00)에 바뀌는 주 단위 순환입니다. 한 주에 정기 이벤트 하나가 열리고, 비운 주는 열리지 않습니다. 게임 쪽 컨텐츠 구현은 별도 작업이며 이 편성은 그 기준 데이터입니다.</p>${contents.length ? "" : '<p class="msg bad">켜져 있는 컨텐츠가 없습니다. 컨텐츠 탭에서 먼저 만드세요.</p>'}<div class="week-list">${weeks.map((w) => `<div class="week-row${w.now ? " now" : ""}"><span class="week-label"><b>${esc(w.label)}</b>${w.now ? ' <span class="tag pub">이번 주</span>' : ""}</span>${selectHtml(`wk-${w.key}`, `${w.label} 편성`, options, byWeek[w.key] || "")}</div>`).join("")}</div>${canWrite() ? '<div class="actions"><button class="btn primary" id="rtSave" type="button">편성 저장</button><button class="btn ghost" id="rtFill" type="button">빈 주를 순서대로 채우기</button></div>' : ""}<p class="msg" id="rtMsg" role="status"></p></section></div>`;
   bindSubTabs((t) => viewEvents(t));
   if (!canWrite()) return $("opsBody").querySelectorAll(".week-row select").forEach((s) => (s.disabled = true));
   $("rtFill").onclick = () => {

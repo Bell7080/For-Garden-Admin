@@ -308,7 +308,7 @@ create or replace function public.admin_delete_event_content(p_id uuid)
 returns jsonb language plpgsql security definer set search_path = '' as $fn$
 begin
   if not private.admin_can(array['owner','operator']) then raise exception 'forbidden' using errcode = '42501'; end if;
-  if exists (select 1 from public.event_rotation where content_id = p_id and week_start >= date_trunc('week', (now() at time zone 'Asia/Seoul'))::date) then
+  if exists (select 1 from public.event_rotation where content_id = p_id and week_start >= date_trunc('week', (now() at time zone 'UTC'))::date) then
     raise exception 'in_rotation';
   end if;
   update public.event_contents set deleted_at = now(), enabled = false, updated_at = now() where id = p_id and deleted_at is null;
@@ -344,11 +344,11 @@ end $fn$;
 -- 게임이 읽는 지금 주의 정기 이벤트(활성인 것만). 확률 공개를 위해 보상표도 함께 돌려준다.
 create or replace function public.get_regular_event()
 returns jsonb language sql stable security definer set search_path = '' as $fn$
-  with wk as (select date_trunc('week', (now() at time zone 'Asia/Seoul'))::date as w)
+  with wk as (select date_trunc('week', (now() at time zone 'UTC'))::date as w)
   select coalesce((
     select jsonb_build_object('id', c.id, 'kind', c.kind, 'variant', c.variant, 'name', c.name, 'description', c.description,
       'currency', c.currency, 'costPerPlay', c.cost_per_play, 'dailyFreePlays', c.daily_free_plays, 'rewardTable', c.reward_table,
-      'weekStart', r.week_start, 'endsAt', ((r.week_start + 7)::timestamp at time zone 'Asia/Seoul'))
+      'weekStart', r.week_start, 'endsAt', ((r.week_start + 7)::timestamp at time zone 'UTC'))
     from wk join public.event_rotation r on r.week_start = wk.w
     join public.event_contents c on c.id = r.content_id and c.enabled and c.deleted_at is null
   ), 'null'::jsonb);
