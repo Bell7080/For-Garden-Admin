@@ -78,6 +78,14 @@ export function presetDate(kind, now = new Date()) {
       return at(90, base.getHours(), base.getMinutes());
     case "tomorrow9":
       return at(1, 9, 0);
+    case "today0":
+      return at(0, 0, 0);
+    case "-1d":
+      return at(-1, base.getHours(), base.getMinutes());
+    case "-7d":
+      return at(-7, base.getHours(), base.getMinutes());
+    case "-30d":
+      return at(-30, base.getHours(), base.getMinutes());
     case "today23":
       return at(0, 23, 59);
     case "nextMonday9":

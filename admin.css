@@ -1564,3 +1564,27 @@ input[type="range"]:disabled {
 .cl-grid > div { min-width: 0; }
 .cl-grid .ledger { max-height: 520px; overflow-y: auto; }
 @media (max-width: 720px) { .cl-grid { grid-template-columns: 1fr; } }
+
+/* 대시보드 · 오류 보고 · 운영진 · FAQ · 감사 로그 */
+.dash-stats { margin: 12px 0 4px; }
+.stat-link { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.stat-link:hover, .stat-link:focus-visible { border-color: var(--yellow); }
+.stat-link.hot strong { color: var(--bad); }
+.stat-link:not(.hot) strong { color: var(--muted); }
+.bars { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px; align-items: end; height: 140px; margin: 8px 0 16px; }
+.bar { display: grid; grid-template-rows: 1fr auto; height: 100%; gap: 4px; }
+.bar span { align-self: end; display: block; min-height: 2px; background: var(--yellow); clip-path: polygon(0 4px, 100% 0, 100% 100%, 0 100%); }
+.bar small { font-size: 12px; color: var(--muted); text-align: center; }
+.d1-row { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+pre.code { margin: 6px 0 12px; padding: 10px 12px; max-height: 280px; overflow: auto; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.faq-locale { margin: 12px 0; padding: 8px 12px; border: 1px solid var(--line); background: var(--paper); }
+.faq-locale summary { cursor: pointer; font-size: 14px; }
+.trash-row select { width: auto; min-width: 110px; }
+.audit-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin: 8px 0; }
+@media (max-width: 760px) {
+  .dash-stats { grid-template-columns: repeat(2, 1fr); }
+  .bars { gap: 2px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bar span { transition: height 0.3s ease; }
+}

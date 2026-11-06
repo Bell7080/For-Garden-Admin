@@ -27,8 +27,15 @@ const ERRORS = {
   already_deleted: "이미 삭제된 계정입니다.",
   before_launch: "패치노트는 1.0.0 정식 출시 이후 버전부터 기록합니다.",
   in_rotation: "이번 주 이후 편성에 들어 있는 컨텐츠는 지울 수 없습니다. 먼저 편성에서 빼세요.",
+  staff_user_not_found: "그 이메일로 가입한 관리자 로그인 계정이 없습니다. 먼저 Supabase Auth에 계정을 만들어 주세요.",
+  cannot_change_self: "자기 자신의 권한은 바꿀 수 없습니다. 다른 소유자에게 요청하세요.",
+  last_owner: "마지막 소유자는 내릴 수 없습니다. 먼저 다른 소유자를 지정하세요.",
 };
+// 마이그레이션이 아직 적용되지 않은 함수·표를 부르면 PostgREST 가 PGRST202/PGRST205 를 돌려준다.
+const NEEDS_DB = /Could not find the (function|table)|PGRST20[25]|\(404\)/;
+const needsDbHtml = (file) => `<p class="hint">이 기능은 DB 업데이트가 필요합니다. <code>supabase/migrations/${esc(file)}</code>을(를) 운영 DB에 적용하면 열립니다.</p>`;
 const VIEWS = [
+  { id: "dashboard", label: "대시보드", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "OVERVIEW", title: "운영 현황" },
   { id: "notice", label: "공지", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "CONTENT DESK", title: "공지 관리" },
   { id: "patchnotes", label: "패치노트", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "CONTENT DESK", title: "패치노트" },
   { id: "tickets", label: "문의·신고", roles: ["owner", "operator", "cs"], eyebrow: "SUPPORT DESK", title: "문의·신고" },
@@ -36,13 +43,16 @@ const VIEWS = [
   { id: "mails", label: "우편", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "REWARD DESK", title: "우편·보상 발송" },
   { id: "coupons", label: "쿠폰", roles: ["owner", "operator"], eyebrow: "REWARD DESK", title: "쿠폰 관리" },
   { id: "events", label: "정기 이벤트", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "정기 이벤트" },
+  { id: "faq", label: "FAQ", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "CONTENT DESK", title: "자주 묻는 질문" },
+  { id: "errors", label: "오류 보고", roles: ["owner", "operator"], eyebrow: "LIVE OPS", title: "클라이언트 오류" },
   { id: "config", label: "운영 설정", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "운영 설정" },
   { id: "trash", label: "휴지통", roles: ["owner", "operator"], eyebrow: "ARCHIVE", title: "휴지통" },
+  { id: "staff", label: "운영진", roles: ["owner"], eyebrow: "SECURITY", title: "운영진 권한" },
   { id: "audit", label: "감사 로그", roles: ["owner"], eyebrow: "SECURITY", title: "감사 로그" },
 ];
 
 let api = null; // { call, ask, esc, role }
-let current = "notice";
+let current = "dashboard";
 let assetsCache = null;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => api.esc(s);
@@ -185,7 +195,7 @@ async function openTicket(id) {
     const [[t], msgs] = await Promise.all([rest(`support_tickets?id=eq.${id}&select=*`), rest(`support_messages?ticket_id=eq.${id}&select=author_kind,body,created_at&order=id`)]);
     const [p] = t.player_id ? await rest(`players?id=eq.${t.player_id}&select=uid,nickname,status`) : [];
     const who = t.source === "web" ? `이메일 ${esc(t.contact_email)}` : `UID ${esc(p?.uid)} · ${esc(p?.nickname || "닉네임 없음")} · ${PLAYER_STATUS[p?.status] || ""}`;
-    box.innerHTML = `<section class="card"><p class="eyebrow">TICKET #${t.ticket_no}</p><h2>${esc(t.subject)}</h2><p class="hint">${SOURCE[t.source]} · ${CATEGORY[t.category]} · ${STATUS[t.status]} · ${esc(dt(t.created_at))}</p><p class="hint">${who}${t.reported_uid ? ` · 신고 대상 UID ${esc(t.reported_uid)}` : ""}${t.app_version ? ` · v${esc(t.app_version)} ${esc(t.platform || "")}` : ""}</p><div class="thread"><div class="bubble player"><b>접수 내용</b><p>${esc(t.body)}</p></div>${msgs.map((m) => `<div class="bubble ${m.author_kind}"><b>${m.author_kind === "staff" ? "운영팀" : "플레이어"} · ${esc(dt(m.created_at))}</b><p>${esc(m.body)}</p></div>`).join("")}</div></section><section class="card">${t.source === "web" ? '<p class="hint">홈페이지 접수는 플레이어에게 자동 전달되지 않습니다. 기록해 둔 뒤 이메일로 직접 회신하세요.</p>' : ""}<label for="tkReply">답변</label><textarea id="tkReply" maxlength="4000" placeholder="플레이어에게 보일 답변을 작성하세요."></textarea><label for="tkNext">처리 후 상태</label><select id="tkNext"><option value="answered">답변 완료</option><option value="in_progress">처리 중</option><option value="closed">종료</option></select><div class="actions"><button class="btn primary" id="tkSend" type="button">답변 저장</button><button class="btn ghost" id="tkClose" type="button">답변 없이 종료</button><span class="spacer"></span>${canWrite() ? trashBtn("tkTrash") : ""}</div><p class="msg" id="tkMsg" role="status"></p></section>`;
+    box.innerHTML = `<section class="card"><p class="eyebrow">TICKET #${t.ticket_no}</p><h2>${esc(t.subject)}</h2><p class="hint">${SOURCE[t.source]} · ${CATEGORY[t.category]} · ${STATUS[t.status]} · ${esc(dt(t.created_at))}</p><p class="hint">${who}${t.reported_uid ? ` · 신고 대상 UID ${esc(t.reported_uid)}` : ""}${t.app_version ? ` · v${esc(t.app_version)} ${esc(t.platform || "")}` : ""}</p><div class="thread"><div class="bubble player"><b>접수 내용</b><p>${esc(t.body)}</p></div>${msgs.map((m) => `<div class="bubble ${m.author_kind}"><b>${m.author_kind === "staff" ? "운영팀" : "플레이어"} · ${esc(dt(m.created_at))}</b><p>${esc(m.body)}</p></div>`).join("")}</div></section><section class="card">${t.source === "web" ? '<p class="hint">홈페이지 접수는 플레이어에게 자동 전달되지 않습니다. 기록해 둔 뒤 이메일로 직접 회신하세요.</p>' : ""}<label for="tkReply">답변</label><textarea id="tkReply" maxlength="4000" placeholder="플레이어에게 보일 답변을 작성하세요."></textarea><label for="tkNext">처리 후 상태</label><select id="tkNext"><option value="answered">답변 완료</option><option value="in_progress">처리 중</option><option value="closed">종료</option></select><div class="actions"><button class="btn primary" id="tkSend" type="button">답변 저장</button>${t.reported_uid || p?.uid ? `<button class="btn ghost" id="tkOpenPlayer" type="button">${t.reported_uid ? "신고 대상 계정 열기" : "작성자 계정 열기"}</button>` : ""}<button class="btn ghost" id="tkClose" type="button">답변 없이 종료</button><span class="spacer"></span>${canWrite() ? trashBtn("tkTrash") : ""}</div><p class="msg" id="tkMsg" role="status"></p></section>`;
     const refresh = async (text) => {
       await openTicket(id);
       if (text) notify("tkMsg", text);
@@ -205,6 +215,12 @@ async function openTicket(id) {
         notify("tkMsg", e.message, true);
       }
     };
+    if ($("tkOpenPlayer"))
+      $("tkOpenPlayer").onclick = async () => {
+        await openView("players");
+        $("plQuery").value = String(t.reported_uid || p.uid);
+        $("plForm").requestSubmit();
+      };
     if ($("tkTrash")) $("tkTrash").onclick = () => sendToTrash("ticket", id, `#${t.ticket_no} ${t.subject}`, () => $("tkStatus").onchange(), "tkMsg");
     $("tkClose").onclick = async () => {
       if (!(await api.ask("이 문의를 답변 없이 종료할까요?"))) return;
@@ -269,8 +285,9 @@ async function openPlayer(id) {
     // 가방의 아이템은 재화 뒤에 함께 세운다(키는 지급 목록과 같은 item:<ID>).
     const bag = detail?.hasSave ? (detail.items || []).filter((x) => x && Number(x.quantity) > 0).map((x) => [`item:${x.itemId}`, x.quantity]) : [];
     const pending = detail?.pending || [];
-    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${[...wallet, ...bag].map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? '<section class="card" id="clCard"><p class="hint">재화 기록을 불러오는 중…</p></section>' : ""}${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각</label><input id="plUntil" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="비워두면 무기한" aria-label="정지 해제 시각" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화·아이템</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}${isItem(a.asset) ? " (아이템)" : ""}</option>`).join("")}</select></div><div><label for="adDelta">수량</label><div class="amount-row"><div class="sign-toggle" role="group" aria-label="지급 또는 차감"><button type="button" class="on" data-sign="1" aria-pressed="true">+ 지급</button><button type="button" data-sign="-1" aria-pressed="false">− 차감</button></div><input id="adDelta" inputmode="numeric" placeholder="수량" /></div></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted && targetStaff ? '<section class="card"><h3>계정 삭제</h3><p class="hint">운영진 계정은 삭제할 수 없습니다. 먼저 운영진 권한을 해제해야 합니다.</p></section>' : ""}${canWrite() && deleted ? `<section class="card"><h3>삭제된 계정</h3><p class="hint">되살리면 진행 데이터 없이 빈 계정으로 돌아오고, 영구 삭제하면 UID·이름 기록까지 지워 목록에서 사라집니다.</p><div class="actions"><button class="btn" id="plRestore" type="button">되살리기</button><span class="spacer"></span>${trashBtn("plPurge", "영구 삭제")}</div></section>` : ""}${canWrite() && !deleted && !targetStaff ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
+    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${[...wallet, ...bag].map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? '<section class="card" id="clCard"><p class="hint">재화 기록을 불러오는 중…</p></section>' : ""}${staff ? '<section class="card" id="snCard"><h3>제재·조정 이력</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각</label><input id="plUntil" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="비워두면 무기한" aria-label="정지 해제 시각" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화·아이템</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}${isItem(a.asset) ? " (아이템)" : ""}</option>`).join("")}</select></div><div><label for="adDelta">수량</label><div class="amount-row"><div class="sign-toggle" role="group" aria-label="지급 또는 차감"><button type="button" class="on" data-sign="1" aria-pressed="true">+ 지급</button><button type="button" data-sign="-1" aria-pressed="false">− 차감</button></div><input id="adDelta" inputmode="numeric" placeholder="수량" /></div></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted && targetStaff ? '<section class="card"><h3>계정 삭제</h3><p class="hint">운영진 계정은 삭제할 수 없습니다. 먼저 운영진 권한을 해제해야 합니다.</p></section>' : ""}${canWrite() && deleted ? `<section class="card"><h3>삭제된 계정</h3><p class="hint">되살리면 진행 데이터 없이 빈 계정으로 돌아오고, 영구 삭제하면 UID·이름 기록까지 지워 목록에서 사라집니다.</p><div class="actions"><button class="btn" id="plRestore" type="button">되살리기</button><span class="spacer"></span>${trashBtn("plPurge", "영구 삭제")}</div></section>` : ""}${canWrite() && !deleted && !targetStaff ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
     if (staff) mountCurrencyLog(id);
+    if (staff) mountSanctions(id);
     if (staff && !deleted) {
       setVal($("plSt"), p.status);
       $("plApply").onclick = async () => {
@@ -349,6 +366,25 @@ async function openPlayer(id) {
     }
   } catch (e) {
     fail(box, e);
+  }
+}
+
+// ───────── 제재·조정 이력 ─────────
+// 감사 로그에 남은 그 계정의 상태 변경·삭제·재화 조정. CS도 볼 수 있게 함수가 그 계정 몫만 돌려준다.
+async function mountSanctions(id) {
+  const card = $("snCard");
+  try {
+    const rows = await rpc("admin_player_sanctions", { p_player: id });
+    if (!card.isConnected) return;
+    const line = (r) => {
+      const d = r.detail || {};
+      if (r.action === "player_status") return `<b>${esc(PLAYER_STATUS[d.status] || d.status)}</b>${d.until ? ` · ${esc(dt(d.until))}까지` : ""}${d.reason ? ` · ${esc(d.reason)}` : ""}`;
+      if (r.action === "asset_adjust") return `<b>${esc(assetLabel(d.asset))} ${d.delta > 0 ? "+" : ""}${num(d.delta)}</b>${d.reason ? ` · ${esc(d.reason)}` : ""}`;
+      return `<b>계정 삭제</b>${d.reason ? ` · ${esc(d.reason)}` : ""}`;
+    };
+    card.innerHTML = `<h3>제재·조정 이력 <span class="hint">최근 50건</span></h3><div class="ledger">${rows.map((r) => `<p>${line(r)} <small>${esc(dt(r.at))} · ${esc(r.actor_email || "시스템")}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div>`;
+  } catch (e) {
+    if (card.isConnected) card.innerHTML = `<h3>제재·조정 이력</h3>${NEEDS_DB.test(e.message) ? needsDbHtml(MIGRATION_V2) : `<p class="msg bad">${esc(e.message)}</p>`}`;
   }
 }
 
@@ -483,7 +519,7 @@ async function openMail(id) {
 async function composeMail() {
   markSelected(null);
   const list = await assets();
-  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID</label><input id="mlTarget" inputmode="numeric" autocomplete="off" placeholder="비워두면 전체 발송" /></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option><option value="unlimited">무제한</option><option value="custom">날짜 직접 지정</option></select><input id="mlExpire" data-datetime data-presets="+7d,+30d,+90d,today23" data-empty="만료 일시를 고르세요" aria-label="우편 만료 일시" hidden /></div></div><label for="mlStart">발송 시각</label><input id="mlStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9,nextMonday9" data-empty="비워두면 즉시 발송" aria-label="발송 시각" /><div id="mlNewBox"><label class="check"><input type="checkbox" id="mlNew" /> 발송 이후 만료 전까지 새로 가입한 계정도 받기</label><p class="hint">끄면 우편이 시작되기 전에 만들어진 계정만 받습니다. 특정 UID 발송에는 적용되지 않습니다.</p></div><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
+  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID <span class="hint">여러 명은 쉼표·줄바꿈으로 (최대 1,000)</span></label><textarea id="mlTarget" rows="2" autocomplete="off" placeholder="비워두면 전체 발송"></textarea></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option><option value="unlimited">무제한</option><option value="custom">날짜 직접 지정</option></select><input id="mlExpire" data-datetime data-presets="+7d,+30d,+90d,today23" data-empty="만료 일시를 고르세요" aria-label="우편 만료 일시" hidden /></div></div><label for="mlStart">발송 시각</label><input id="mlStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9,nextMonday9" data-empty="비워두면 즉시 발송" aria-label="발송 시각" /><div id="mlNewBox"><label class="check"><input type="checkbox" id="mlNew" /> 발송 이후 만료 전까지 새로 가입한 계정도 받기</label><p class="hint">끄면 우편이 시작되기 전에 만들어진 계정만 받습니다. 특정 UID 발송에는 적용되지 않습니다.</p></div><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
   const readRewards = rewardEditor($("mlRewards"), list);
   enhanceDateTimes($("opsDetail"));
   const customExpire = () => $("mlDays").value === "custom";
@@ -498,11 +534,13 @@ async function composeMail() {
   syncNew();
   $("mlSend").onclick = async () => {
     try {
-      const uid = $("mlTarget").value.trim();
+      const uids = [...new Set($("mlTarget").value.split(/[\s,]+/).filter(Boolean))];
+      if (uids.some((u) => !/^\d{1,15}$/.test(u))) throw new Error("UID는 숫자로 입력하세요.");
+      if (uids.length > 1000) throw new Error("한 번에 1,000명까지 보낼 수 있습니다.");
+      const uid = uids.length === 1 ? uids[0] : "";
       let target = null;
-      let who = "전체 플레이어";
+      let who = uids.length > 1 ? `UID ${num(uids.length)}명` : "전체 플레이어";
       if (uid) {
-        if (!/^\d{1,15}$/.test(uid)) throw new Error("UID는 숫자로 입력하세요.");
         const [p] = await rest(`players?uid=eq.${uid}&select=id,nickname`);
         if (!p) throw new Error("해당 UID의 계정이 없습니다.");
         target = p.id;
@@ -523,7 +561,13 @@ async function composeMail() {
       }
       const rewards = readRewards();
       if (!(await api.ask(`${who}에게 우편을 보낼까요?\n보상: ${rewardPlain(rewards)}`))) return;
-      await rpc("admin_send_mail", { p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_target: target, p_starts: starts, p_expires: expires, p_include_new: !uid && $("mlNew").checked, p_unlimited: unlimited });
+      if (uids.length > 1) {
+        const r = await rpc("admin_send_mail_many", { p_uids: uids.map(Number), p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_starts: starts, p_expires: expires, p_unlimited: unlimited });
+        await loadMailList();
+        $("opsDetail").innerHTML = `<section class="card"><p class="msg">${num(r.sent)}명에게 발송했습니다.</p>${r.missing?.length ? `<p class="hint">없는(또는 삭제된) UID ${num(r.missing.length)}개는 건너뛰었습니다: ${esc(r.missing.join(", "))}</p>` : ""}</section>`;
+        return;
+      }
+      await rpc("admin_send_mail", { p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_target: target, p_starts: starts, p_expires: expires, p_include_new: !uids.length && $("mlNew").checked, p_unlimited: unlimited });
       await loadMailList();
       $("opsDetail").innerHTML = `<section class="card"><p class="msg">발송했습니다.</p></section>`;
     } catch (e) {
@@ -1080,20 +1124,271 @@ ${ro ? "" : `<div class="actions"><button class="btn primary" id="ecSave" type="
 }
 
 // ───────── 감사 로그 ─────────
-const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정", player_delete: "계정 삭제", trash_move: "휴지통 이동", trash_restore: "휴지통 복구", trash_purge: "영구 삭제", recurring_mail_save: "정기 우편 저장", recurring_mail_set: "정기 우편 상태", patch_note_save: "패치노트 저장", patch_note_delete: "패치노트 삭제", event_content_save: "정기 이벤트 저장", event_content_delete: "정기 이벤트 삭제", event_rotation_set: "정기 이벤트 편성" };
+const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", config_set: "운영 설정", staff_role: "운영진 권한", mail_send_many: "묶음 우편 발송", faq_save: "FAQ 저장", faq_delete: "FAQ 삭제", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정", player_delete: "계정 삭제", trash_move: "휴지통 이동", trash_restore: "휴지통 복구", trash_purge: "영구 삭제", recurring_mail_save: "정기 우편 저장", recurring_mail_set: "정기 우편 상태", patch_note_save: "패치노트 저장", patch_note_delete: "패치노트 삭제", event_content_save: "정기 이벤트 저장", event_content_delete: "정기 이벤트 삭제", event_rotation_set: "정기 이벤트 편성" };
 async function viewAudit() {
-  const rows = await rest("admin_audit_log?select=id,actor,action,target,detail,at&order=id.desc&limit=200");
-  const actions = [...new Set(rows.map((r) => r.action))];
-  $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">SECURITY</p><h2>감사 로그</h2><p class="hint">최근 200건 · 소유자만 볼 수 있습니다.</p><select id="auFilter" aria-label="작업 종류"><option value="">작업 전체</option>${actions.map((a) => `<option value="${esc(a)}">${esc(AUDIT_LABEL[a] || a)}</option>`).join("")}</select><div id="auList"></div></section></div>`;
-  const draw = () => {
-    const f = $("auFilter").value;
-    $("auList").innerHTML = rows.filter((r) => !f || r.action === f).map((r) => `<div class="nrow static"><span class="tag">${esc(AUDIT_LABEL[r.action] || r.action)}</span><b>${esc(r.target)}</b><small>${esc(dt(r.at))} · 담당 ${esc(String(r.actor || "").slice(0, 8))}</small><small class="detail">${esc(JSON.stringify(r.detail || {})).slice(0, 300)}</small></div>`).join("") || '<p class="hint">기록이 없습니다.</p>';
+  // 담당자 UUID 를 이메일로 바꿔 보여 준다(운영진 목록을 못 읽으면 앞 8자리).
+  const staff = await rpc("admin_list_staff", {}).catch(() => []);
+  const who = (id) => staff.find((x) => x.user_id === id)?.email || String(id || "시스템").slice(0, 8);
+  $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">SECURITY</p><h2>감사 로그</h2><p class="hint">소유자만 볼 수 있습니다. 모든 운영 쓰기 작업이 남습니다.</p><div class="filters audit-filters"><select id="auFilter" aria-label="작업 종류"><option value="">작업 전체</option>${Object.entries(AUDIT_LABEL).map(([a, t]) => `<option value="${esc(a)}">${esc(t)}</option>`).join("")}</select><select id="auActor" aria-label="담당자"><option value="">담당자 전체</option>${staff.map((x) => `<option value="${esc(x.user_id)}">${esc(x.email)}</option>`).join("")}</select><input id="auTarget" placeholder="대상 검색 (예: players:계정ID, mails:)" autocomplete="off" aria-label="대상 검색" /><input id="auSince" data-datetime data-clearable data-presets="today0,-1d,-7d,-30d" data-empty="기간 시작" aria-label="기간 시작" /></div><p class="hint" id="auCount" role="status"></p><div id="auList"></div><div class="actions"><button class="btn ghost" id="auMore" type="button" hidden>더 보기</button></div></section></div>`;
+  enhanceDateTimes($("opsBody"));
+  let rows = [];
+  const row = (r) => `<div class="nrow static"><span class="tag">${esc(AUDIT_LABEL[r.action] || r.action)}</span><b>${esc(r.target)}</b><small>${esc(dt(r.at))} · 담당 ${esc(who(r.actor))}</small><small class="detail">${esc(JSON.stringify(r.detail || {}).slice(0, 300))}</small></div>`;
+  const load = async (more = false) => {
+    const f = [];
+    if ($("auFilter").value) f.push(`action=eq.${$("auFilter").value}`);
+    if ($("auActor").value) f.push(`actor=eq.${$("auActor").value}`);
+    const t = $("auTarget").value.trim().replace(/[*,()%]/g, "");
+    if (t) f.push(`target=ilike.*${encodeURIComponent(t)}*`);
+    try {
+      const since = parseLocal($("auSince").value);
+      if (since) f.push(`at=gte.${encodeURIComponent(since)}`);
+      if (more && rows.length) f.push(`id=lt.${rows[rows.length - 1].id}`);
+      const page = await rest(`admin_audit_log?select=id,actor,action,target,detail,at&order=id.desc&limit=100${f.length ? "&" + f.join("&") : ""}`);
+      rows = more ? [...rows, ...page] : page;
+      $("auList").innerHTML = rows.map(row).join("") || '<p class="hint">기록이 없습니다.</p>';
+      $("auCount").textContent = `${num(rows.length)}건 표시`;
+      $("auMore").hidden = page.length < 100;
+    } catch (e) {
+      $("auCount").textContent = e.message;
+    }
   };
-  $("auFilter").onchange = draw;
-  draw();
+  ["auFilter", "auActor", "auSince"].forEach((id) => ($(id).onchange = () => load()));
+  let timer;
+  $("auTarget").oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(load, 300);
+  };
+  $("auMore").onclick = () => load(true);
+  await load();
 }
 
-const RENDER = { patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit };
+// ───────── 대시보드 ─────────
+// 한국 시간 기준 오늘의 DAU·신규·동시 접속, 14일 추이, 처리할 일(문의·오류·탈퇴)을 한 장에 모은다.
+const MIGRATION_V2 = "20261119000000_ops_console_v2.sql";
+const pct = (v) => (v == null ? "—" : `${Number(v).toLocaleString("ko", { maximumFractionDigits: 1 })}%`);
+const PLATFORM = { web: "웹", android: "안드로이드", ios: "iOS", unknown: "미상" };
+function barChart(series, key, label) {
+  const max = Math.max(1, ...series.map((d) => Number(d[key]) || 0));
+  return `<div class="bars" role="img" aria-label="${esc(label)} 14일 추이">${series
+    .map((d) => {
+      const v = Number(d[key]) || 0;
+      return `<div class="bar" title="${esc(d.day)} · ${num(v)}"><span style="height:${Math.round((v / max) * 100)}%"></span><small>${esc(String(d.day).slice(8))}</small></div>`;
+    })
+    .join("")}</div>`;
+}
+async function viewDashboard() {
+  let d;
+  try {
+    d = await rpc("admin_dashboard", {});
+  } catch (e) {
+    if (!NEEDS_DB.test(e.message)) throw e;
+    $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">OVERVIEW</p><h2>운영 현황</h2>${needsDbHtml(MIGRATION_V2)}</section></div>`;
+    return;
+  }
+  const p = d.players;
+  const s = d.series || [];
+  const todo = [
+    [d.support.open, "미처리 문의", "tickets"],
+    [d.support.reports, "미처리 신고", "tickets"],
+    ...(d.errors ? [[d.errors.open, "열린 오류", "errors"]] : []),
+    ...(d.deletionRequests != null ? [[d.deletionRequests, "탈퇴 대기", "players"]] : []),
+  ];
+  const lastD1 = [...s].reverse().find((x) => x.d1 != null);
+  $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">OVERVIEW · ${esc(d.today)} (한국 시간)</p><h2>운영 현황</h2>
+  <p class="hint"><span class="tag ${d.live.maintenance ? "scheduled" : "pub"}">${d.live.maintenance ? "점검 중" : "정상 운영"}</span> 진행 중 우편 ${num(d.live.mails)} · 사용 가능 쿠폰 ${num(d.live.coupons)}</p>
+  <div class="stats dash-stats">
+    <div class="stat"><strong>${num(p.dau)}</strong><span>오늘 접속(DAU)</span></div>
+    <div class="stat"><strong>${num(p.online15m)}</strong><span>최근 15분 접속</span></div>
+    <div class="stat"><strong>${num(p.newToday)}</strong><span>오늘 신규 가입</span></div>
+    <div class="stat"><strong>${pct(lastD1?.d1)}</strong><span>D1 잔존${lastD1 ? ` (${esc(String(lastD1.day).slice(5))} 가입)` : ""}</span></div>
+    <div class="stat"><strong>${num(p.wau)}</strong><span>7일 활성(WAU)</span></div>
+    <div class="stat"><strong>${num(p.mau)}</strong><span>30일 활성(MAU)</span></div>
+    <div class="stat"><strong>${num(p.total)}</strong><span>전체 계정</span></div>
+    <div class="stat"><strong>${num(p.restricted)}</strong><span>정지·제한 계정</span></div>
+  </div></section>
+  <section class="card"><h3>처리할 일</h3><div class="stats dash-stats">${todo.map(([n, label, view]) => `<button class="stat stat-link${Number(n) > 0 ? " hot" : ""}" type="button" data-go="${view}"><strong>${num(n || 0)}</strong><span>${esc(label)}</span></button>`).join("")}</div>${d.support.oldestOpen ? `<p class="hint">가장 오래 기다린 문의 ${esc(dt(d.support.oldestOpen))} 접수</p>` : ""}${d.errors ? `<p class="hint">오늘 새로 잡힌 오류 ${num(d.errors.newToday)}종 · 최근 24시간 발생 ${num(d.errors.occurrences24h)}회</p>` : ""}</section>
+  <section class="card"><h3>일별 접속(DAU)</h3>${barChart(s, "dau", "DAU")}<h3>일별 신규 가입</h3>${barChart(s, "new", "신규 가입")}
+  <h3>D1 잔존</h3><div class="ledger d1-row">${s.filter((x) => x.new > 0).map((x) => `<p><b>${esc(String(x.day).slice(5))}</b> 가입 ${num(x.new)} · 다음 날 ${pct(x.d1)}</p>`).join("") || '<p class="hint">최근 14일 가입 기록이 없습니다.</p>'}</div>
+  <p class="hint">일별 접속은 DB 업데이트 이후부터 쌓입니다. 그 이전 날은 마지막 접속일만 남아 있어 작게 보일 수 있습니다.</p></section>
+  <section class="card"><h3>최근 7일 접속 환경</h3><div class="chips">${Object.entries(d.platforms || {}).map(([k, v]) => `<span class="chip">${esc(PLATFORM[k] || k)} <b>${num(v)}</b></span>`).join("") || '<span class="hint">기록 없음</span>'}</div><h3>앱 버전</h3><div class="chips">${(d.versions || []).map((v) => `<span class="chip">v${esc(v.version)} <b>${num(v.players)}</b></span>`).join("") || '<span class="hint">기록 없음</span>'}</div></section></div>`;
+  $("opsBody").querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => openView(b.dataset.go)));
+}
+
+// ───────── 클라이언트 오류 ─────────
+// 게임의 ErrorReporter 가 모은 오류(client_errors). 같은 오류는 한 줄이고 횟수·영향 계정 수만 오른다.
+const ERROR_STATUS = { open: "열림", fixed: "고침", ignored: "무시" };
+async function viewErrors() {
+  shell({
+    title: "오류 보고",
+    filters: `<input id="erQuery" placeholder="메시지·코드·화면 검색" autocomplete="off" aria-label="오류 검색" /><div class="filters"><select id="erStatus" aria-label="상태"><option value="open">열림</option><option value="fixed">고침</option><option value="ignored">무시</option><option value="">상태 전체</option></select><select id="erSort" aria-label="정렬"><option value="last_seen">최근 발생순</option><option value="occurrences">발생 횟수순</option><option value="affected_players">영향 계정순</option></select></div>`,
+  });
+  $("opsDetail").innerHTML = placeholder("목록에서 오류를 선택하세요.");
+  const load = async (selectId) => {
+    const f = [];
+    if ($("erStatus").value) f.push(`status=eq.${$("erStatus").value}`);
+    const q = $("erQuery").value.trim().replace(/[*,()%]/g, "");
+    if (q) f.push(`or=(message.ilike.*${encodeURIComponent(q)}*,code.ilike.*${encodeURIComponent(q)}*,scene.ilike.*${encodeURIComponent(q)}*)`);
+    try {
+      const rows = await rest(`client_errors?select=id,kind,code,message,scene,app_version,platform,occurrences,affected_players,status,last_seen&order=${$("erSort").value}.desc&limit=100${f.length ? "&" + f.join("&") : ""}`);
+      $("opsCount").textContent = `${rows.length}종`;
+      $("opsList").innerHTML = rows.map((r) => `<button class="nrow" data-id="${r.id}"><span class="tag ${r.status === "open" ? "scheduled" : "pub"}">${ERROR_STATUS[r.status]}</span><span class="tag">${num(r.occurrences)}회 · ${num(r.affected_players)}명</span><b>${esc(r.code ? `[${r.code}] ` : "")}${esc(r.message.slice(0, 90))}</b><small>${esc(r.scene || "-")} · v${esc(r.app_version || "?")} ${esc(r.platform || "")} · ${esc(dt(r.last_seen))}</small></button>`).join("") || '<p class="hint">조건에 맞는 오류가 없습니다.</p>';
+      $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openError(b.dataset.id, load)));
+      if (selectId) markSelected(String(selectId));
+    } catch (e) {
+      $("opsCount").textContent = NEEDS_DB.test(e.message) ? "오류 수집 표가 아직 운영 DB에 없습니다(게임 저장소 20261116000000_client_errors.sql)." : e.message;
+    }
+  };
+  ["erStatus", "erSort"].forEach((id) => ($(id).onchange = () => load()));
+  let timer;
+  $("erQuery").oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(load, 300);
+  };
+  await load();
+}
+async function openError(id, reload) {
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
+  try {
+    const [e] = await rest(`client_errors?id=eq.${id}&select=*`);
+    const json = (v) => esc(JSON.stringify(v ?? {}, null, 2));
+    // AI·개발자에게 그대로 넘길 수 있게 한 덩어리 글로 묶는다(docs/error-reports.md 형식).
+    const brief = [`[${e.kind}] ${e.code || ""} ${e.message}`, `화면 ${e.scene || "-"} · v${e.app_version || "?"} (${e.build || "-"}) ${e.platform || ""}`, `발생 ${e.occurrences}회 · 영향 ${e.affected_players}명 · ${e.first_seen} ~ ${e.last_seen}`, "", e.stack || "(스택 없음)", "", "context: " + JSON.stringify(e.context || {}), "breadcrumbs: " + JSON.stringify(e.breadcrumbs || [])].join("\n");
+    box.innerHTML = `<section class="card"><p class="eyebrow">ERROR #${e.id} · ${esc(e.kind)}</p><h2>${esc(e.code ? `[${e.code}] ` : "")}${esc(e.message)}</h2><p class="hint"><span class="tag ${e.status === "open" ? "scheduled" : "pub"}">${ERROR_STATUS[e.status]}</span> ${num(e.occurrences)}회 · 영향 ${num(e.affected_players)}명 · 처음 ${esc(dt(e.first_seen))} · 마지막 ${esc(dt(e.last_seen))}</p><p class="hint">화면 ${esc(e.scene || "-")} · v${esc(e.app_version || "?")} ${esc(e.build || "")} · ${esc(e.platform || "")}</p><h3>스택</h3><pre class="code">${esc(e.stack || "(없음)")}</pre><h3>상황</h3><pre class="code">${json(e.context)}</pre><h3>직전 동작</h3><pre class="code">${json(e.breadcrumbs)}</pre><div class="actions"><button class="btn ghost" id="erCopy" type="button">개발용 요약 복사</button></div></section><section class="card"><h3>처리</h3><label for="erNote">메모 <span class="hint">고친 버전·원인 등</span></label><input id="erNote" maxlength="1000" value="${esc(e.note || "")}" /><div class="actions">${["open", "fixed", "ignored"].filter((st) => st !== e.status).map((st) => `<button class="btn${st === "fixed" ? " primary" : ""}" type="button" data-st="${st}">${ERROR_STATUS[st]}(으)로</button>`).join("")}</div><p class="hint">「고침」은 다른 버전에서 다시 나면 저절로 「열림」으로 돌아옵니다.</p><p class="msg" id="erMsg" role="status"></p></section>`;
+    $("erCopy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(brief);
+        notify("erMsg", "복사했습니다.");
+      } catch {
+        notify("erMsg", "클립보드에 쓸 수 없습니다.", true);
+      }
+    };
+    box.querySelectorAll("[data-st]").forEach(
+      (b) =>
+        (b.onclick = async () => {
+          try {
+            await rpc("admin_set_client_error_status", { p_id: Number(id), p_status: b.dataset.st, p_note: $("erNote").value || null });
+            await reload(id);
+            await openError(id, reload);
+            notify("erMsg", "바꿨습니다.");
+          } catch (err) {
+            notify("erMsg", err.message, true);
+          }
+        }),
+    );
+  } catch (e) {
+    fail(box, e);
+  }
+}
+
+// ───────── 운영진 권한 ─────────
+const ROLE_LABEL = { owner: "소유자", operator: "운영자", cs: "CS", viewer: "조회" };
+const ROLE_HINT = { owner: "모든 기능 + 권한·감사 로그", operator: "공지·우편·쿠폰·이벤트·재화 조정", cs: "문의 답변·계정 조회·정지", viewer: "조회만" };
+async function viewStaff() {
+  let rows;
+  try {
+    rows = await rpc("admin_list_staff", {});
+  } catch (e) {
+    if (!NEEDS_DB.test(e.message)) throw e;
+    $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">SECURITY</p><h2>운영진 권한</h2>${needsDbHtml(MIGRATION_V2)}</section></div>`;
+    return;
+  }
+  const roleOptions = Object.entries(ROLE_LABEL);
+  $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">SECURITY</p><h2>운영진 권한</h2><p class="hint">${Object.entries(ROLE_LABEL).map(([k, v]) => `<b>${v}</b> ${ROLE_HINT[k]}`).join(" · ")}</p><div id="stList">${rows
+    .map(
+      (r) => `<div class="trash-row" data-email="${esc(r.email)}"><span class="tag ${r.role === "owner" ? "scheduled" : "pub"}">${esc(ROLE_LABEL[r.role] || r.role)}</span><div class="trash-text"><b>${esc(r.email)}</b><small>${r.uid ? `UID ${esc(r.uid)} ${esc(r.nickname || "")} · ` : ""}지정 ${esc(dt(r.created_at))} · 마지막 로그인 ${esc(dt(r.last_sign_in_at))}</small></div>${selectHtml("", "권한", roleOptions, r.role)}<button class="btn ghost" type="button" data-save>변경</button><button class="btn danger" type="button" data-remove>해제</button></div>`,
+    )
+    .join("")}</div></section><section class="card"><h3>운영진 추가</h3><p class="hint">Supabase Auth에 이메일·비밀번호 로그인 계정이 먼저 있어야 합니다. 같은 계정으로 게임을 했다면 그 게임 계정도 운영진으로 표시되어 삭제할 수 없게 됩니다.</p><div class="row2"><div><label for="stEmail">로그인 이메일</label><input id="stEmail" type="email" autocomplete="off" maxlength="200" /></div><div><label for="stRole">권한</label>${selectHtml("stRole", "권한", roleOptions, "cs")}</div></div><div class="actions"><button class="btn primary" id="stAdd" type="button">추가</button></div><p class="msg" id="stMsg" role="status"></p></section></div>`;
+  const apply = async (email, role, text) => {
+    try {
+      if (!(await api.ask(text))) return;
+      await rpc("admin_set_staff_role", { p_email: email, p_role: role });
+      await viewStaff();
+      notify("stMsg", "적용했습니다. 대상이 다시 로그인하면 반영됩니다.");
+    } catch (e) {
+      notify("stMsg", e.message, true);
+    }
+  };
+  $("stList").querySelectorAll(".trash-row").forEach((row) => {
+    const email = row.dataset.email;
+    row.querySelector("[data-save]").onclick = () => {
+      const role = row.querySelector("select").value;
+      apply(email, role, `${email}의 권한을 「${ROLE_LABEL[role]}」(으)로 바꿀까요?`);
+    };
+    row.querySelector("[data-remove]").onclick = () => apply(email, null, `${email}의 운영진 권한을 모두 해제할까요? 운영 콘솔에 들어올 수 없게 됩니다.`);
+  });
+  $("stAdd").onclick = () => {
+    const email = $("stEmail").value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return notify("stMsg", "이메일 형식을 확인하세요.", true);
+    apply(email, $("stRole").value, `${email}에게 「${ROLE_LABEL[$("stRole").value]}」 권한을 줄까요?`);
+  };
+}
+
+// ───────── FAQ ─────────
+// 홈페이지 고객센터의 자주 묻는 질문. 공지와 같이 원문 + 직접 작성한 언어별 원고만 저장한다(자동 번역 없음).
+const FAQ_CATEGORY = { account: "계정", game: "게임 플레이", payment: "결제·환불", event: "이벤트·쿠폰", etc: "기타" };
+const FAQ_LOCALES = [["en", "English"], ["ja", "日本語"]];
+async function viewFaqs() {
+  shell({ title: "FAQ", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">새 질문</button>' : "", filters: `<select id="fqCat" aria-label="분류"><option value="">분류 전체</option>${Object.entries(FAQ_CATEGORY).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>` });
+  $("opsDetail").innerHTML = placeholder(canWrite() ? "목록에서 질문을 고르거나 새 질문을 작성하세요." : "목록에서 질문을 고르세요.");
+  if (canWrite()) $("opsNew").onclick = () => editFaq(null);
+  $("fqCat").onchange = () => loadFaqList();
+  await loadFaqList();
+}
+async function loadFaqList(selectId) {
+  try {
+    const c = $("fqCat").value;
+    const rows = await rest(`website_faqs?select=id,category,sort,published,question,translations,updated_at&order=category,sort,updated_at${c ? `&category=eq.${c}` : ""}`);
+    $("opsCount").textContent = `${rows.length}개 · 홈페이지 고객센터에 게시된 것만 보입니다.`;
+    $("opsList").innerHTML = rows.map((f) => `<button class="nrow" data-id="${esc(f.id)}"><span class="tag ${f.published ? "pub" : ""}">${f.published ? "게시" : "숨김"}</span><span class="tag">${esc(FAQ_CATEGORY[f.category])}</span><b>${esc(f.question)}</b><small>순서 ${num(f.sort)}${Object.keys(f.translations || {}).length ? ` · ${Object.keys(f.translations).join("·")}` : ""} · ${esc(dt(f.updated_at))}</small></button>`).join("") || '<p class="hint">등록된 질문이 없습니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => editFaq(b.dataset.id)));
+    markSelected(selectId);
+  } catch (e) {
+    $("opsCount").textContent = NEEDS_DB.test(e.message) ? `DB 업데이트가 필요합니다(${MIGRATION_V2}).` : e.message;
+  }
+}
+async function editFaq(id) {
+  const box = $("opsDetail");
+  markSelected(id);
+  const [f] = id ? await rest(`website_faqs?id=eq.${id}&select=*`) : [{ category: "game", sort: 100, published: false, question: "", answer: "", translations: {} }];
+  const ro = canWrite() ? "" : " disabled";
+  box.innerHTML = `<section class="card"><h2>${id ? "질문 편집" : "새 질문"}</h2><div class="row2"><div><label for="fqCategory">분류</label>${selectHtml("fqCategory", "분류", Object.entries(FAQ_CATEGORY), f.category)}</div><div><label for="fqSort">순서 <span class="hint">작을수록 위</span></label><input id="fqSort" inputmode="numeric" value="${esc(f.sort)}"${ro} /></div></div><label for="fqQ">질문 (원문 · 한국어)</label><input id="fqQ" maxlength="200" value="${esc(f.question)}"${ro} /><label for="fqA">답변</label><textarea id="fqA" maxlength="5000" rows="7"${ro}>${esc(f.answer)}</textarea>${FAQ_LOCALES.map(([loc, name]) => `<details class="faq-locale"${f.translations?.[loc] ? " open" : ""}><summary>${name} 원고 <span class="hint">비워 두면 원문을 보여 줍니다</span></summary><label for="fqQ_${loc}">질문</label><input id="fqQ_${loc}" maxlength="200" value="${esc(f.translations?.[loc]?.question || "")}"${ro} /><label for="fqA_${loc}">답변</label><textarea id="fqA_${loc}" maxlength="5000" rows="5"${ro}>${esc(f.translations?.[loc]?.answer || "")}</textarea></details>`).join("")}<label class="check"><input type="checkbox" id="fqPub"${f.published ? " checked" : ""}${ro} /> 홈페이지에 게시</label>${canWrite() ? `<div class="actions"><button class="btn primary" id="fqSave" type="button">저장</button><span class="spacer"></span>${id ? trashBtn("fqDel", "삭제") : ""}</div>` : '<p class="hint">조회만 가능한 권한입니다.</p>'}<p class="msg" id="fqMsg" role="status"></p></section>`;
+  if (!canWrite()) return;
+  $("fqSave").onclick = async () => {
+    try {
+      const translations = {};
+      for (const [loc, name] of FAQ_LOCALES) {
+        const q = $(`fqQ_${loc}`).value.trim();
+        const a = $(`fqA_${loc}`).value.trim();
+        if (!q && !a) continue;
+        if (!q || !a) throw new Error(`${name} 원고는 질문과 답변을 함께 쓰거나 둘 다 비워 두세요.`);
+        translations[loc] = { question: q, answer: a };
+      }
+      const sort = Number($("fqSort").value);
+      if (!Number.isInteger(sort)) throw new Error("순서는 정수로 입력하세요.");
+      const r = await rpc("admin_save_faq", { p: { id: id || null, category: $("fqCategory").value, sort, published: $("fqPub").checked, question: $("fqQ").value, answer: $("fqA").value, translations } });
+      await loadFaqList(r.id);
+      await editFaq(r.id);
+      notify("fqMsg", "저장했습니다.");
+    } catch (e) {
+      notify("fqMsg", e.message, true);
+    }
+  };
+  if ($("fqDel"))
+    $("fqDel").onclick = async () => {
+      if (!(await api.ask(`「${f.question}」 질문을 삭제할까요? 되돌릴 수 없습니다.`))) return;
+      try {
+        await rpc("admin_delete_faq", { p_id: id });
+        box.innerHTML = placeholder("삭제했습니다.");
+        await loadFaqList();
+      } catch (e) {
+        notify("fqMsg", e.message, true);
+      }
+    };
+}
+
+const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit };
 
 export async function openView(id) {
   const view = VIEWS.find((v) => v.id === id && v.roles.includes(api.role));
@@ -1122,11 +1417,11 @@ export function mountOps(options) {
   const allowed = VIEWS.filter((v) => v.roles.includes(api.role));
   $("mainNav").innerHTML = allowed.map((v) => `<button type="button" role="tab" data-view="${v.id}">${v.label}</button>`).join("");
   $("mainNav").querySelectorAll("button").forEach((b) => (b.onclick = () => openView(b.dataset.view)));
-  return openView("notice");
+  return openView("dashboard");
 }
 export function resetOps() {
   api = null;
-  current = "notice";
+  current = "dashboard";
   assetsCache = null;
   $("mainNav").innerHTML = "";
   $("opsBody").innerHTML = "";

@@ -17,6 +17,10 @@ const PRESET_LABEL = {
   tomorrow9: "내일 09:00",
   today23: "오늘 23:59",
   nextMonday9: "다음 월요일 09:00",
+  today0: "오늘 00:00",
+  "-1d": "하루 전",
+  "-7d": "7일 전",
+  "-30d": "30일 전",
 };
 const ITEM = 36; // 바퀴 한 칸 높이(px) — CSS와 같다
 const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
