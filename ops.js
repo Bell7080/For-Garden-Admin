@@ -43,6 +43,10 @@ const ERRORS = {
   invalid_action: "올바르지 않은 조치입니다.",
   banner_not_found: "배너를 찾을 수 없습니다.",
   invalid_translations: "번역 원고는 영어·일본어만 쓸 수 있습니다.",
+  invalid_segment: "대상 조건을 확인하세요. 조건을 하나 이상 고르고, 최소값이 최대값보다 크지 않아야 합니다.",
+  segment_empty: "조건에 맞는 계정이 없습니다.",
+  segment_too_large: "한 번에 5만 명까지 보낼 수 있습니다. 조건을 좁히세요.",
+  invalid_rule: "올바르지 않은 규칙입니다.",
 };
 // 마이그레이션이 아직 적용되지 않은 함수·표를 부르면 PostgREST 가 PGRST202/PGRST205 를 돌려준다.
 const NEEDS_DB = /Could not find the (function|table)|PGRST20[25]|\(404\)/;
@@ -62,6 +66,7 @@ const VIEWS = [
   { id: "guilds", label: "길드", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "PLAYER DESK", title: "길드 관리" },
   { id: "bannedwords", label: "금칙어", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "SAFETY", title: "금칙어" },
   { id: "faq", label: "FAQ", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "CONTENT DESK", title: "자주 묻는 질문" },
+  { id: "anomalies", label: "이상 징후", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "이상 징후" },
   { id: "errors", label: "오류 보고", roles: ["owner", "operator"], eyebrow: "LIVE OPS", title: "클라이언트 오류" },
   { id: "config", label: "운영 설정", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "운영 설정" },
   { id: "trash", label: "휴지통", roles: ["owner", "operator"], eyebrow: "ARCHIVE", title: "휴지통" },
@@ -303,10 +308,11 @@ async function openPlayer(id) {
     // 가방의 아이템은 재화 뒤에 함께 세운다(키는 지급 목록과 같은 item:<ID>).
     const bag = detail?.hasSave ? (detail.items || []).filter((x) => x && Number(x.quantity) > 0).map((x) => [`item:${x.itemId}`, x.quantity]) : [];
     const pending = detail?.pending || [];
-    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${[...wallet, ...bag].map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? '<section class="card" id="clCard"><p class="hint">재화 기록을 불러오는 중…</p></section>' : ""}${staff ? '<section class="card" id="snCard"><h3>제재·조정 이력</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff && !deleted ? '<section class="card" id="prCard"><h3>닉네임·소개 초기화</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각</label><input id="plUntil" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="비워두면 무기한" aria-label="정지 해제 시각" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화·아이템</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}${isItem(a.asset) ? " (아이템)" : ""}</option>`).join("")}</select></div><div><label for="adDelta">수량</label><div class="amount-row"><div class="sign-toggle" role="group" aria-label="지급 또는 차감"><button type="button" class="on" data-sign="1" aria-pressed="true">+ 지급</button><button type="button" data-sign="-1" aria-pressed="false">− 차감</button></div><input id="adDelta" inputmode="numeric" placeholder="수량" /></div></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted && targetStaff ? '<section class="card"><h3>계정 삭제</h3><p class="hint">운영진 계정은 삭제할 수 없습니다. 먼저 운영진 권한을 해제해야 합니다.</p></section>' : ""}${canWrite() && deleted ? `<section class="card"><h3>삭제된 계정</h3><p class="hint">되살리면 진행 데이터 없이 빈 계정으로 돌아오고, 영구 삭제하면 UID·이름 기록까지 지워 목록에서 사라집니다.</p><div class="actions"><button class="btn" id="plRestore" type="button">되살리기</button><span class="spacer"></span>${trashBtn("plPurge", "영구 삭제")}</div></section>` : ""}${canWrite() && !deleted && !targetStaff ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
+    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${[...wallet, ...bag].map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? '<section class="card" id="clCard"><p class="hint">재화 기록을 불러오는 중…</p></section>' : ""}${staff ? '<section class="card" id="snCard"><h3>제재·조정 이력</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff ? '<section class="card" id="rpCard"><h3>받은 신고</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff && !deleted ? '<section class="card" id="prCard"><h3>닉네임·소개 초기화</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각</label><input id="plUntil" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="비워두면 무기한" aria-label="정지 해제 시각" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화·아이템</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}${isItem(a.asset) ? " (아이템)" : ""}</option>`).join("")}</select></div><div><label for="adDelta">수량</label><div class="amount-row"><div class="sign-toggle" role="group" aria-label="지급 또는 차감"><button type="button" class="on" data-sign="1" aria-pressed="true">+ 지급</button><button type="button" data-sign="-1" aria-pressed="false">− 차감</button></div><input id="adDelta" inputmode="numeric" placeholder="수량" /></div></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted && targetStaff ? '<section class="card"><h3>계정 삭제</h3><p class="hint">운영진 계정은 삭제할 수 없습니다. 먼저 운영진 권한을 해제해야 합니다.</p></section>' : ""}${canWrite() && deleted ? `<section class="card"><h3>삭제된 계정</h3><p class="hint">되살리면 진행 데이터 없이 빈 계정으로 돌아오고, 영구 삭제하면 UID·이름 기록까지 지워 목록에서 사라집니다.</p><div class="actions"><button class="btn" id="plRestore" type="button">되살리기</button><span class="spacer"></span>${trashBtn("plPurge", "영구 삭제")}</div></section>` : ""}${canWrite() && !deleted && !targetStaff ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
     if (staff) mountCurrencyLog(id);
     if (staff) mountSanctions(id);
     if (staff && !deleted) mountProfileReset(id);
+    if (staff) mountReports(p.uid);
     if (staff && !deleted) {
       setVal($("plSt"), p.status);
       $("plApply").onclick = async () => {
@@ -541,7 +547,7 @@ async function openMail(id) {
 async function composeMail() {
   markSelected(null);
   const list = await assets();
-  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><div class="row2"><div><label for="mlTarget">받는 UID <span class="hint">여러 명은 쉼표·줄바꿈으로 (최대 1,000)</span></label><textarea id="mlTarget" rows="2" autocomplete="off" placeholder="비워두면 전체 발송"></textarea></div><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option><option value="unlimited">무제한</option><option value="custom">날짜 직접 지정</option></select><input id="mlExpire" data-datetime data-presets="+7d,+30d,+90d,today23" data-empty="만료 일시를 고르세요" aria-label="우편 만료 일시" hidden /></div></div><label for="mlStart">발송 시각</label><input id="mlStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9,nextMonday9" data-empty="비워두면 즉시 발송" aria-label="발송 시각" /><div id="mlNewBox"><label class="check"><input type="checkbox" id="mlNew" /> 발송 이후 만료 전까지 새로 가입한 계정도 받기</label><p class="hint">끄면 우편이 시작되기 전에 만들어진 계정만 받습니다. 특정 UID 발송에는 적용되지 않습니다.</p></div><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
+  $("opsDetail").innerHTML = `<section class="card"><h2>새 우편</h2><label for="mlTitle">제목</label><input id="mlTitle" maxlength="80" /><label for="mlBody">내용</label><textarea id="mlBody" maxlength="2000"></textarea><label>첨부 보상 <span class="hint">없으면 알림 우편이 됩니다.</span></label><div id="mlRewards"></div><label for="mlMode">받는 사람</label><select id="mlMode"><option value="all">전체 플레이어</option><option value="uids">UID 지정</option><option value="segment">조건으로 고르기</option></select><div id="mlUidBox"><label for="mlTarget">받는 UID <span class="hint">여러 명은 쉼표·줄바꿈으로 (최대 1,000)</span></label><textarea id="mlTarget" rows="2" autocomplete="off"></textarea></div><div id="mlSegBox">${segmentFormHtml()}</div><div class="row2"><div><label for="mlDays">보관 기간</label><select id="mlDays"><option value="7">7일</option><option value="14">14일</option><option value="30" selected>30일</option><option value="90">90일</option><option value="unlimited">무제한</option><option value="custom">날짜 직접 지정</option></select></div><div><input id="mlExpire" data-datetime data-presets="+7d,+30d,+90d,today23" data-empty="만료 일시를 고르세요" aria-label="우편 만료 일시" hidden /></div></div><label for="mlStart">발송 시각</label><input id="mlStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9,nextMonday9" data-empty="비워두면 즉시 발송" aria-label="발송 시각" /><div id="mlNewBox"><label class="check"><input type="checkbox" id="mlNew" /> 발송 이후 만료 전까지 새로 가입한 계정도 받기</label><p class="hint">끄면 우편이 시작되기 전에 만들어진 계정만 받습니다. 특정 UID 발송에는 적용되지 않습니다.</p></div><div class="actions"><button class="btn primary" id="mlSend" type="button">발송</button></div><p class="msg" id="mlMsg" role="status"></p></section>`;
   const readRewards = rewardEditor($("mlRewards"), list);
   enhanceDateTimes($("opsDetail"));
   const customExpire = () => $("mlDays").value === "custom";
@@ -551,17 +557,30 @@ async function composeMail() {
   };
   $("mlDays").onchange = syncExpire;
   syncExpire();
-  const syncNew = () => ($("mlNewBox").hidden = $("mlTarget").value.trim() !== "");
-  $("mlTarget").oninput = syncNew;
-  syncNew();
+  const mode = () => $("mlMode").value;
+  const syncMode = () => {
+    $("mlUidBox").hidden = mode() !== "uids";
+    $("mlSegBox").hidden = mode() !== "segment";
+    $("mlNewBox").hidden = mode() !== "all";
+  };
+  $("mlMode").onchange = syncMode;
+  syncMode();
+  bindSegmentForm();
   $("mlSend").onclick = async () => {
     try {
-      const uids = [...new Set($("mlTarget").value.split(/[\s,]+/).filter(Boolean))];
+      const segment = mode() === "segment" ? readSegment() : null;
+      const uids = mode() === "uids" ? [...new Set($("mlTarget").value.split(/[\s,]+/).filter(Boolean))] : [];
+      if (mode() === "uids" && !uids.length) throw new Error("받는 UID를 입력하세요.");
       if (uids.some((u) => !/^\d{1,15}$/.test(u))) throw new Error("UID는 숫자로 입력하세요.");
       if (uids.length > 1000) throw new Error("한 번에 1,000명까지 보낼 수 있습니다.");
       const uid = uids.length === 1 ? uids[0] : "";
       let target = null;
-      let who = uids.length > 1 ? `UID ${num(uids.length)}명` : "전체 플레이어";
+      let who = segment ? "조건에 맞는 계정" : uids.length > 1 ? `UID ${num(uids.length)}명` : "전체 플레이어";
+      if (segment) {
+        const pv = await rpc("admin_mail_segment_preview", { p_segment: segment });
+        if (!pv.count) throw new Error(ERRORS.segment_empty);
+        who = `조건에 맞는 ${num(pv.count)}명(${segmentPlain(segment)})`;
+      }
       if (uid) {
         const [p] = await rest(`players?uid=eq.${uid}&select=id,nickname`);
         if (!p) throw new Error("해당 UID의 계정이 없습니다.");
@@ -583,6 +602,12 @@ async function composeMail() {
       }
       const rewards = readRewards();
       if (!(await api.ask(`${who}에게 우편을 보낼까요?\n보상: ${rewardPlain(rewards)}`))) return;
+      if (segment) {
+        const r = await rpc("admin_send_mail_segment", { p_segment: segment, p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_starts: starts, p_expires: expires, p_unlimited: unlimited });
+        await loadMailList();
+        $("opsDetail").innerHTML = `<section class="card"><p class="msg">${num(r.sent)}명에게 발송했습니다.</p><p class="hint">${esc(segmentPlain(segment))}</p></section>`;
+        return;
+      }
       if (uids.length > 1) {
         const r = await rpc("admin_send_mail_many", { p_uids: uids.map(Number), p_title: $("mlTitle").value, p_body: $("mlBody").value, p_rewards: rewards, p_starts: starts, p_expires: expires, p_unlimited: unlimited });
         await loadMailList();
@@ -594,6 +619,60 @@ async function composeMail() {
       $("opsDetail").innerHTML = `<section class="card"><p class="msg">발송했습니다.</p></section>`;
     } catch (e) {
       notify("mlMsg", e.message, true);
+    }
+  };
+}
+
+// ── 조건별 대상 우편 ──
+// 조건은 서버(private.mail_segment_valid)가 다시 검증한다. 영구 제한·삭제 계정은 늘 빠진다.
+const ACTIVITY = [["", "상관없음"], ["active", "최근 N일 안에 접속"], ["inactive", "N일 넘게 미접속"]];
+function segmentFormHtml() {
+  return `<div class="row2"><div><label for="sgLvMin">연구원 레벨 최소</label><input id="sgLvMin" inputmode="numeric" placeholder="비워두면 제한 없음" /></div><div><label for="sgLvMax">연구원 레벨 최대</label><input id="sgLvMax" inputmode="numeric" placeholder="비워두면 제한 없음" /></div></div><div class="row2"><div><label for="sgAct">접속</label>${selectHtml("sgAct", "접속 조건", ACTIVITY, "")}</div><div><label for="sgDays">N일</label><input id="sgDays" inputmode="numeric" placeholder="예: 14" /></div></div><div class="row2"><div><label for="sgFrom">가입 시작</label><input id="sgFrom" data-datetime data-clearable data-presets="today,-7d,-30d" data-empty="제한 없음" aria-label="가입 시작" /></div><div><label for="sgTo">가입 끝</label><input id="sgTo" data-datetime data-clearable data-presets="now,today" data-empty="제한 없음" aria-label="가입 끝" /></div></div><label class="check"><input type="checkbox" id="sgSusp" /> 정지 중인 계정도 받기</label><div class="actions"><button class="btn ghost" id="sgPreview" type="button">대상 미리보기</button></div><div id="sgResult"></div>`;
+}
+function readSegment() {
+  const seg = {};
+  const int = (id, label, lo, hi) => {
+    const v = $(id).value.trim();
+    if (!v) return null;
+    if (!/^\d+$/.test(v) || Number(v) < lo || Number(v) > hi) throw new Error(`${label}은(는) ${lo}~${num(hi)} 사이 숫자로 입력하세요.`);
+    return Number(v);
+  };
+  const lo = int("sgLvMin", "레벨 최소", 1, 999);
+  const hi = int("sgLvMax", "레벨 최대", 1, 999);
+  if (lo != null) seg.levelMin = lo;
+  if (hi != null) seg.levelMax = hi;
+  if (lo != null && hi != null && lo > hi) throw new Error("레벨 최소가 최대보다 큽니다.");
+  const act = $("sgAct").value;
+  if (act) {
+    const days = int("sgDays", "N일", 1, act === "active" ? 365 : 3650);
+    if (days == null) throw new Error("접속 조건의 일수를 입력하세요.");
+    seg[act === "active" ? "activeWithinDays" : "inactiveDays"] = days;
+  }
+  const from = parseLocal($("sgFrom").value);
+  const to = parseLocal($("sgTo").value);
+  if (from) seg.createdFrom = from;
+  if (to) seg.createdTo = to;
+  if ($("sgSusp").checked) seg.includeSuspended = true;
+  if (!Object.keys(seg).some((k) => k !== "includeSuspended")) throw new Error("조건을 하나 이상 고르세요. 모두에게 보내려면 「전체 플레이어」를 고르세요.");
+  return seg;
+}
+function segmentPlain(seg) {
+  const parts = [];
+  if (seg.levelMin != null || seg.levelMax != null) parts.push(`레벨 ${seg.levelMin ?? 1}~${seg.levelMax ?? "∞"}`);
+  if (seg.activeWithinDays) parts.push(`최근 ${seg.activeWithinDays}일 안 접속`);
+  if (seg.inactiveDays) parts.push(`${seg.inactiveDays}일 넘게 미접속`);
+  if (seg.createdFrom || seg.createdTo) parts.push(`가입 ${seg.createdFrom ? dt(seg.createdFrom) : "처음"} ~ ${seg.createdTo ? dt(seg.createdTo) : "지금"}`);
+  if (seg.includeSuspended) parts.push("정지 계정 포함");
+  return parts.join(" · ");
+}
+function bindSegmentForm() {
+  $("sgPreview").onclick = async () => {
+    const box = $("sgResult");
+    try {
+      const pv = await rpc("admin_mail_segment_preview", { p_segment: readSegment() });
+      box.innerHTML = `<p class="hint"><b>${num(pv.count)}명</b>이 받습니다.${pv.count > 50000 ? " 한 번에 5만 명까지 보낼 수 있습니다." : ""}</p>${pv.sample.length ? `<div class="ledger">${pv.sample.map((x) => `<p><b>UID ${esc(x.uid)}</b> ${esc(x.nickname || "")} <small>레벨 ${num(x.level || 1)} · 마지막 접속 ${esc(dt(x.lastSeen))}</small></p>`).join("")}</div>` : ""}`;
+    } catch (e) {
+      box.innerHTML = NEEDS_DB.test(e.message) ? needsDbHtml(MIGRATION_V4) : `<p class="msg bad">${esc(e.message)}</p>`;
     }
   };
 }
@@ -1146,7 +1225,7 @@ ${ro ? "" : `<div class="actions"><button class="btn primary" id="ecSave" type="
 }
 
 // ───────── 감사 로그 ─────────
-const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", config_set: "운영 설정", staff_role: "운영진 권한", mail_send_many: "묶음 우편 발송", faq_save: "FAQ 저장", faq_delete: "FAQ 삭제", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정", player_delete: "계정 삭제", trash_move: "휴지통 이동", trash_restore: "휴지통 복구", trash_purge: "영구 삭제", recurring_mail_save: "정기 우편 저장", recurring_mail_set: "정기 우편 상태", patch_note_save: "패치노트 저장", patch_note_delete: "패치노트 삭제", event_content_save: "정기 이벤트 저장", event_content_delete: "정기 이벤트 삭제", event_rotation_set: "정기 이벤트 편성", purchase_refund: "결제 환불", banned_word_add: "금칙어 추가", banned_word_remove: "금칙어 제거", profile_reset: "프로필 초기화", ranking_remove: "랭킹 기록 제외", ranking_restore: "랭킹 제외 해제", guild_kick: "길드 추방", guild_transfer: "길드장 위임", guild_rename: "길드 이름 변경", guild_reset_notice: "길드 공지 비우기", guild_disband: "길드 해산", banner_save: "배너 저장", banner_delete: "배너 삭제" };
+const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", config_set: "운영 설정", staff_role: "운영진 권한", mail_send_many: "묶음 우편 발송", mail_send_segment: "조건 우편 발송", anomaly_ack: "이상 징후 확인", anomaly_rule: "이상 징후 문턱", faq_save: "FAQ 저장", faq_delete: "FAQ 삭제", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정", player_delete: "계정 삭제", trash_move: "휴지통 이동", trash_restore: "휴지통 복구", trash_purge: "영구 삭제", recurring_mail_save: "정기 우편 저장", recurring_mail_set: "정기 우편 상태", patch_note_save: "패치노트 저장", patch_note_delete: "패치노트 삭제", event_content_save: "정기 이벤트 저장", event_content_delete: "정기 이벤트 삭제", event_rotation_set: "정기 이벤트 편성", purchase_refund: "결제 환불", banned_word_add: "금칙어 추가", banned_word_remove: "금칙어 제거", profile_reset: "프로필 초기화", ranking_remove: "랭킹 기록 제외", ranking_restore: "랭킹 제외 해제", guild_kick: "길드 추방", guild_transfer: "길드장 위임", guild_rename: "길드 이름 변경", guild_reset_notice: "길드 공지 비우기", guild_disband: "길드 해산", banner_save: "배너 저장", banner_delete: "배너 삭제" };
 async function viewAudit() {
   // 담당자 UUID 를 이메일로 바꿔 보여 준다(운영진 목록을 못 읽으면 앞 8자리).
   const staff = await rpc("admin_list_staff", {}).catch(() => []);
@@ -1215,6 +1294,8 @@ async function viewDashboard() {
     ...(d.errors ? [[d.errors.open, "열린 오류", "errors"]] : []),
     ...(d.deletionRequests != null ? [[d.deletionRequests, "탈퇴 대기", "players"]] : []),
   ];
+  const anomalies = await rpc("admin_anomalies", {}).catch(() => null);
+  if (anomalies) todo.push([anomalies.items.length, "이상 징후", "anomalies"]);
   const lastD1 = [...s].reverse().find((x) => x.d1 != null);
   $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">OVERVIEW · ${esc(d.today)} (한국 시간)</p><h2>운영 현황</h2>
   <p class="hint"><span class="tag ${d.live.maintenance ? "scheduled" : "pub"}">${d.live.maintenance ? "점검 중" : "정상 운영"}</span> 진행 중 우편 ${num(d.live.mails)} · 사용 가능 쿠폰 ${num(d.live.coupons)}</p>
@@ -1420,6 +1501,7 @@ function needsDb(e, eyebrow, title) {
   $("opsBody").innerHTML = needsDbCard(eyebrow, title);
   return true;
 }
+const MIGRATION_V4 = "20261121000000_ops_console_v4.sql";
 // 지급 목록(게임의 Grant: currency·item)을 어드민 재화 키로 옮긴다.
 const grantAsset = (g) => (g?.kind === "currency" ? g.currency : g?.kind === "item" ? `item:${g.itemId}` : null);
 const grantChips = (list) =>
@@ -1724,7 +1806,118 @@ async function mountProfileReset(id) {
   };
 }
 
-const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit, purchases: viewPurchases, ranking: () => viewRanking(), guilds: viewGuilds, bannedwords: viewBannedWords, banners: viewBanners };
+// ───────── 운영 콘솔 v4: 이상 징후·받은 신고 ─────────
+async function openPlayerByUid(uid) {
+  await openView("players");
+  $("plQuery").value = String(uid);
+  $("plForm").requestSubmit();
+}
+async function mountReports(uid) {
+  const card = $("rpCard");
+  if (!card) return;
+  let r;
+  try {
+    r = await rpc("admin_player_reports", { p_uid: uid });
+  } catch (e) {
+    if (card.isConnected) card.innerHTML = `<h3>받은 신고</h3>${NEEDS_DB.test(e.message) ? needsDbHtml(MIGRATION_V4) : `<p class="msg bad">${esc(e.message)}</p>`}`;
+    return;
+  }
+  if (!card.isConnected) return;
+  card.innerHTML = `<h3>받은 신고</h3><div class="stats"><div class="stat"><strong>${num(r.total)}</strong><span>전체</span></div><div class="stat"><strong>${num(r.open)}</strong><span>미처리</span></div><div class="stat"><strong>${num(r.reporters)}</strong><span>신고한 계정</span></div></div>${r.recent.length ? `<div class="ledger">${r.recent.map((t) => `<p><b>#${esc(t.ticketNo)}</b> ${esc(t.subject)} <small>${esc(STATUS[t.status] || t.status)} · ${esc(dt(t.createdAt))}</small></p>`).join("")}</div><p class="hint">자세한 내용은 「문의·신고」에서 봅니다.</p>` : '<p class="hint">받은 신고가 없습니다.</p>'}`;
+}
+
+const ANOMALY_KIND = { gain: "재화 급증", adjust: "큰 수동 조정", error_new: "새 오류 확산", error_hot: "오류 급증", refund: "환불 급증" };
+const RULE_LABEL = { "error:new_players": "새 오류가 퍼진 계정 수 (24시간 안 첫 발생)", "error:hot_occurrences": "최근 1시간 안에 난 열린 오류의 누적 횟수", "refund:day": "24시간 안 환불 표시 건수" };
+const ruleLabel = (k) => RULE_LABEL[k] || (k.startsWith("gain:") ? `${walletLabel(k.slice(5))} 하루 획득량 (한 계정)` : k);
+function anomalyLine(i) {
+  const who = i.uid ? `UID ${i.uid} ${i.nickname || ""}` : "";
+  if (i.kind === "gain") return `${who} · ${walletLabel(i.asset)} +${num(i.amount)} (${esc(String(i.day))})`;
+  if (i.kind === "adjust") return `${who} · ${walletLabel(i.asset)} ${i.amount > 0 ? "+" : ""}${num(i.amount)}`;
+  if (i.kind === "error_new") return `${i.code ? `[${i.code}] ` : ""}${i.message} · ${num(i.amount)}명`;
+  if (i.kind === "error_hot") return `${i.code ? `[${i.code}] ` : ""}${i.message} · ${num(i.amount)}회`;
+  if (i.kind === "refund") return `24시간 안 환불 ${num(i.amount)}건`;
+  return i.key;
+}
+async function viewAnomalies(selectKey) {
+  shell({ title: "이상 징후", filters: `<label class="check"><input type="checkbox" id="anAcked" /> 확인한 것도 보기</label>` });
+  $("opsDetail").innerHTML = placeholder("목록에서 징후를 고르세요.");
+  const load = async (key) => {
+    let r;
+    try {
+      r = await rpc("admin_anomalies", { p_include_acked: $("anAcked").checked });
+    } catch (e) {
+      if (NEEDS_DB.test(e.message)) {
+        $("opsCount").textContent = "";
+        $("opsDetail").innerHTML = `<section class="card">${needsDbHtml(MIGRATION_V4)}</section>`;
+        return;
+      }
+      $("opsList").innerHTML = `<p class="msg bad">${esc(e.message)}</p>`;
+      return;
+    }
+    const items = r.items;
+    $("opsCount").textContent = items.length ? `${num(items.length)}건 · 문턱을 넘은 기록입니다. 확인하면 목록에서 빠집니다.` : "지금 문턱을 넘은 기록이 없습니다.";
+    $("opsList").innerHTML = items.map((i, n) => `<button class="nrow" data-id="${esc(i.key)}" data-n="${n}"><span class="tag ${i.acked ? "pub" : "scheduled"}">${esc(ANOMALY_KIND[i.kind] || i.kind)}</span>${i.acked ? '<span class="tag">확인함</span>' : ""}<b>${esc(anomalyLine(i))}</b><small>${esc(dt(i.at))}</small></button>`).join("") || '<p class="hint">조용합니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openAnomaly(items[Number(b.dataset.n)], load)));
+    if (key) {
+      markSelected(key);
+      const hit = items.find((i) => i.key === key);
+      if (hit) openAnomaly(hit, load);
+    } else renderRules(r.rules);
+  };
+  $("anAcked").onchange = () => load();
+  await load(selectKey);
+}
+function renderRules(rules) {
+  const owner = api.role === "owner";
+  const keys = Object.keys(rules).sort((a, b) => (a.startsWith("gain:") === b.startsWith("gain:") ? a.localeCompare(b) : a.startsWith("gain:") ? -1 : 1));
+  $("opsDetail").innerHTML = `<section class="card"><p class="eyebrow">LIVE OPS</p><h2>감시 문턱</h2><p class="hint">재화는 한 계정이 한국 날짜 하루에 얻은 양(오늘·어제)을 봅니다. 운영자가 연 수동 조정도 한 건이 같은 문턱을 넘으면 잡습니다.${owner ? " 문턱은 소유자만 바꿉니다." : ""}</p><div class="week-list">${keys.map((k) => `<div class="trash-row" data-rule="${esc(k)}"><div class="trash-text"><b>${esc(ruleLabel(k))}</b><small>${num(rules[k])} 이상</small></div>${owner ? `<input inputmode="numeric" value="${esc(rules[k])}" aria-label="${esc(ruleLabel(k))} 문턱" style="max-width:9rem" /><button class="btn ghost" type="button" data-save>저장</button>` : ""}</div>`).join("")}</div><p class="msg" id="anMsg" role="status"></p></section>`;
+  if (!owner) return;
+  $("opsDetail").querySelectorAll("[data-save]").forEach((b) => {
+    const row = b.closest("[data-rule]");
+    b.onclick = async () => {
+      try {
+        const v = row.querySelector("input").value.trim();
+        if (!/^\d{1,13}$/.test(v) || Number(v) <= 0) throw new Error("문턱은 1 이상의 숫자로 입력하세요.");
+        await rpc("admin_set_anomaly_rule", { p_key: row.dataset.rule, p_threshold: Number(v) });
+        notify("anMsg", `「${ruleLabel(row.dataset.rule)}」 문턱을 ${num(v)}(으)로 바꿨습니다.`);
+      } catch (e) {
+        notify("anMsg", e.message, true);
+      }
+    };
+  });
+}
+function openAnomaly(i, reload) {
+  markSelected(i.key);
+  const canAck = ["owner", "operator", "cs"].includes(api.role) && !i.acked;
+  const detail = [];
+  if (i.kind === "gain") {
+    detail.push(`<p class="hint">${esc(String(i.day))} 하루 동안 ${esc(walletLabel(i.asset))}을(를) <b>${num(i.amount)}</b> 얻었습니다. 문턱 ${num(i.threshold)}.</p>`);
+    if (i.sources?.length) detail.push(`<h3>어디서 얻었나</h3><div class="ledger">${i.sources.map((x) => `<p><b>${esc(x.source)}</b> +${num(x.amount)}</p>`).join("")}</div>`);
+  } else if (i.kind === "adjust") {
+    detail.push(`<p class="hint">${esc(i.actor || "알 수 없는 운영자")}이(가) ${esc(dt(i.at))}에 ${esc(walletLabel(i.asset))} ${i.amount > 0 ? "+" : ""}${num(i.amount)}을(를) 조정했습니다. 사유: ${esc(i.note || "-")}</p>`);
+  } else if (i.kind === "error_new" || i.kind === "error_hot") {
+    detail.push(`<p class="hint">${esc(i.message)}</p><p class="hint">${i.kind === "error_new" ? `24시간 안에 처음 잡혀 ${num(i.amount)}개 계정에 퍼졌습니다.` : `최근 1시간 안에도 나고 있으며 누적 ${num(i.amount)}회입니다.`} 문턱 ${num(i.threshold)}.</p>`);
+  } else if (i.kind === "refund") {
+    detail.push(`<p class="hint">최근 24시간 안에 환불로 표시된 결제가 ${num(i.amount)}건입니다. 문턱 ${num(i.threshold)}.</p>`);
+  }
+  const jump = i.uid ? '<button class="btn ghost" id="anPlayer" type="button">계정 열기</button>' : i.errorId ? '<button class="btn ghost" id="anError" type="button">오류 보고 열기</button>' : i.kind === "refund" ? '<button class="btn ghost" id="anRefunds" type="button">결제 화면 열기</button>' : "";
+  $("opsDetail").innerHTML = `<section class="card"><p class="eyebrow">${esc(ANOMALY_KIND[i.kind] || i.kind)}</p><h2>${esc(anomalyLine(i))}</h2>${detail.join("")}${i.acked ? `<p class="hint">${esc(dt(i.ackedAt))} 확인 · ${esc(i.ackNote || "메모 없음")}</p>` : ""}${canAck ? '<label for="anNote">확인 메모 (선택)</label><input id="anNote" maxlength="200" placeholder="예: 이벤트 보상이라 정상" />' : ""}<div class="actions">${jump}${canAck ? '<span class="spacer"></span><button class="btn primary" id="anAck" type="button">확인함으로 표시</button>' : ""}</div><p class="msg" id="anMsg" role="status"></p></section>`;
+  if ($("anPlayer")) $("anPlayer").onclick = () => openPlayerByUid(i.uid);
+  if ($("anError")) $("anError").onclick = () => openView("errors");
+  if ($("anRefunds")) $("anRefunds").onclick = () => openView("purchases");
+  if ($("anAck"))
+    $("anAck").onclick = async () => {
+      try {
+        await rpc("admin_ack_anomaly", { p_key: i.key, p_note: $("anNote").value.trim() });
+        await reload();
+        $("opsDetail").innerHTML = placeholder("확인했습니다.");
+      } catch (e) {
+        notify("anMsg", e.message, true);
+      }
+    };
+}
+
+const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit, purchases: viewPurchases, ranking: () => viewRanking(), guilds: viewGuilds, bannedwords: viewBannedWords, banners: viewBanners, anomalies: () => viewAnomalies() };
 
 export async function openView(id) {
   const view = VIEWS.find((v) => v.id === id && v.roles.includes(api.role));
