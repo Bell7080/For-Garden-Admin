@@ -30,6 +30,19 @@ const ERRORS = {
   staff_user_not_found: "그 이메일로 가입한 관리자 로그인 계정이 없습니다. 먼저 Supabase Auth에 계정을 만들어 주세요.",
   cannot_change_self: "자기 자신의 권한은 바꿀 수 없습니다. 다른 소유자에게 요청하세요.",
   last_owner: "마지막 소유자는 내릴 수 없습니다. 먼저 다른 소유자를 지정하세요.",
+  purchase_not_found: "결제 기록을 찾을 수 없습니다.",
+  already_refunded: "이미 환불로 표시된 결제입니다.",
+  invalid_word: "금칙어는 공백을 뺀 1~40자로 입력하세요.",
+  already_pending: "같은 초기화가 이미 반영을 기다리고 있습니다.",
+  invalid_kind: "올바르지 않은 초기화 대상입니다.",
+  guild_not_found: "길드를 찾을 수 없습니다. 이미 해산했을 수 있습니다.",
+  not_member: "그 계정은 이 길드의 길드원이 아닙니다.",
+  leader_cannot_be_kicked: "길드장은 추방할 수 없습니다. 먼저 길드장을 위임하세요.",
+  invalid_guild_name: "길드 이름은 문자·숫자·공백 2~12자입니다.",
+  guild_name_taken: "이미 쓰고 있는 길드 이름입니다.",
+  invalid_action: "올바르지 않은 조치입니다.",
+  banner_not_found: "배너를 찾을 수 없습니다.",
+  invalid_translations: "번역 원고는 영어·일본어만 쓸 수 있습니다.",
 };
 // 마이그레이션이 아직 적용되지 않은 함수·표를 부르면 PostgREST 가 PGRST202/PGRST205 를 돌려준다.
 const NEEDS_DB = /Could not find the (function|table)|PGRST20[25]|\(404\)/;
@@ -43,6 +56,11 @@ const VIEWS = [
   { id: "mails", label: "우편", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "REWARD DESK", title: "우편·보상 발송" },
   { id: "coupons", label: "쿠폰", roles: ["owner", "operator"], eyebrow: "REWARD DESK", title: "쿠폰 관리" },
   { id: "events", label: "정기 이벤트", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "정기 이벤트" },
+  { id: "banners", label: "공지 배너", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "공지 팝업 배너" },
+  { id: "purchases", label: "결제", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "BILLING DESK", title: "결제·환불" },
+  { id: "ranking", label: "랭킹", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "랭킹 관리" },
+  { id: "guilds", label: "길드", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "PLAYER DESK", title: "길드 관리" },
+  { id: "bannedwords", label: "금칙어", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "SAFETY", title: "금칙어" },
   { id: "faq", label: "FAQ", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "CONTENT DESK", title: "자주 묻는 질문" },
   { id: "errors", label: "오류 보고", roles: ["owner", "operator"], eyebrow: "LIVE OPS", title: "클라이언트 오류" },
   { id: "config", label: "운영 설정", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "운영 설정" },
@@ -285,9 +303,10 @@ async function openPlayer(id) {
     // 가방의 아이템은 재화 뒤에 함께 세운다(키는 지급 목록과 같은 item:<ID>).
     const bag = detail?.hasSave ? (detail.items || []).filter((x) => x && Number(x.quantity) > 0).map((x) => [`item:${x.itemId}`, x.quantity]) : [];
     const pending = detail?.pending || [];
-    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${[...wallet, ...bag].map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? '<section class="card" id="clCard"><p class="hint">재화 기록을 불러오는 중…</p></section>' : ""}${staff ? '<section class="card" id="snCard"><h3>제재·조정 이력</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각</label><input id="plUntil" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="비워두면 무기한" aria-label="정지 해제 시각" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화·아이템</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}${isItem(a.asset) ? " (아이템)" : ""}</option>`).join("")}</select></div><div><label for="adDelta">수량</label><div class="amount-row"><div class="sign-toggle" role="group" aria-label="지급 또는 차감"><button type="button" class="on" data-sign="1" aria-pressed="true">+ 지급</button><button type="button" data-sign="-1" aria-pressed="false">− 차감</button></div><input id="adDelta" inputmode="numeric" placeholder="수량" /></div></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted && targetStaff ? '<section class="card"><h3>계정 삭제</h3><p class="hint">운영진 계정은 삭제할 수 없습니다. 먼저 운영진 권한을 해제해야 합니다.</p></section>' : ""}${canWrite() && deleted ? `<section class="card"><h3>삭제된 계정</h3><p class="hint">되살리면 진행 데이터 없이 빈 계정으로 돌아오고, 영구 삭제하면 UID·이름 기록까지 지워 목록에서 사라집니다.</p><div class="actions"><button class="btn" id="plRestore" type="button">되살리기</button><span class="spacer"></span>${trashBtn("plPurge", "영구 삭제")}</div></section>` : ""}${canWrite() && !deleted && !targetStaff ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
+    box.innerHTML = `<section class="card"><p class="eyebrow">UID ${esc(p.uid)}</p><h2>${esc(p.nickname || "닉네임 없음")}</h2><p class="hint"><span class="tag ${p.status === "active" ? "pub" : "scheduled"}">${PLAYER_STATUS[p.status]}</span>${p.status_reason ? ` ${esc(p.status_reason)}` : ""}${p.status_until ? ` · ${esc(dt(p.status_until))}까지` : ""}</p><p class="hint">가입 ${esc(dt(p.created_at))} · 마지막 접속 ${esc(dt(p.last_seen_at))} · ${p.app_version ? `v${esc(p.app_version)} ${esc(p.platform || "")}` : "버전 정보 없음"}</p><p class="hint">${p.level ? `연구원 레벨 ${num(p.level)} · ` : ""}${names.length ? `이전 이름 ${esc(names.join(" → "))}` : "이름 변경 기록 없음"}</p>${deleted ? `<p class="hint">${esc(dt(p.deleted_at))} 삭제 · 사유 ${esc(p.deleted_reason || "-")}</p>` : ""}<p class="hint">계정 ID ${esc(p.id)}</p>${tickets.length ? `<h3>최근 문의</h3><div class="ledger">${tickets.map((t) => `<p><b>#${t.ticket_no}</b> ${esc(t.subject)} <small>${STATUS[t.status]}</small></p>`).join("")}</div>` : ""}</section><section class="card"><h3>보유 재화 <span class="hint">게임 저장 기준${detail?.savedAt ? ` · ${esc(dt(detail.savedAt))}` : ""}</span></h3><div class="stats">${[...wallet, ...bag].map(([k, v]) => `<div class="stat"><strong>${num(v)}</strong><span>${esc(assetLabel(k))}</span></div>`).join("") || (held.map((h) => `<div class="stat"><strong>${num(h.amount)}</strong><span>${esc(assetLabel(h.asset))}</span></div>`).join("")) || '<p class="hint">게임 저장이 없습니다.</p>'}</div>${pending.length ? `<h3>반영 대기</h3><div class="ledger">${pending.map((a) => `<p><b>${esc(assetLabel(a.asset))} ${a.delta > 0 ? "+" : ""}${num(a.delta)}</b> <small>${esc(a.note || "")} · ${esc(dt(a.createdAt))} · 접속 중이면 15초 안에 반영</small></p>`).join("")}</div>` : ""}<h3>최근 재화 기록</h3><div class="ledger">${ledger.map((l) => `<p><b>${esc(assetLabel(l.asset))} ${l.delta > 0 ? "+" : ""}${num(l.delta)}</b> → ${num(l.balance_after)} <small>${esc(l.reason)}${l.note ? ` · ${esc(l.note)}` : ""} · ${esc(dt(l.created_at))}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div></section>${staff ? '<section class="card" id="clCard"><p class="hint">재화 기록을 불러오는 중…</p></section>' : ""}${staff ? '<section class="card" id="snCard"><h3>제재·조정 이력</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff && !deleted ? '<section class="card" id="prCard"><h3>닉네임·소개 초기화</h3><p class="hint">불러오는 중…</p></section>' : ""}${staff && !deleted ? `<section class="card"><h3>계정 상태</h3><div class="row2"><div><label for="plSt">상태</label><select id="plSt"><option value="active">정상</option><option value="suspended">정지</option>${canWrite() ? '<option value="banned">영구 제한</option>' : ""}</select></div><div><label for="plUntil">정지 해제 시각</label><input id="plUntil" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="비워두면 무기한" aria-label="정지 해제 시각" /></div></div><label for="plReason">사유 <span class="hint">플레이어에게 안내될 수 있습니다.</span></label><input id="plReason" maxlength="300" /><div class="actions"><button class="btn primary" id="plApply" type="button">상태 적용</button></div></section>` : ""}${canWrite() && !deleted ? `<section class="card"><h3>재화 조정</h3><div class="row2"><div><label for="adAsset">재화·아이템</label><select id="adAsset">${list.map((a) => `<option value="${esc(a.asset)}">${esc(a.label)}${isItem(a.asset) ? " (아이템)" : ""}</option>`).join("")}</select></div><div><label for="adDelta">수량</label><div class="amount-row"><div class="sign-toggle" role="group" aria-label="지급 또는 차감"><button type="button" class="on" data-sign="1" aria-pressed="true">+ 지급</button><button type="button" data-sign="-1" aria-pressed="false">− 차감</button></div><input id="adDelta" inputmode="numeric" placeholder="수량" /></div></div></div><label for="adReason">사유 (필수)</label><input id="adReason" maxlength="300" /><p class="hint">접속 중인 계정은 15초 안에, 아닌 계정은 다음 접속 때 반영되고 안내 팝업이 뜹니다.</p><div class="actions"><button class="btn primary" id="adApply" type="button">조정 적용</button></div></section>` : ""}${canWrite() && !deleted && targetStaff ? '<section class="card"><h3>계정 삭제</h3><p class="hint">운영진 계정은 삭제할 수 없습니다. 먼저 운영진 권한을 해제해야 합니다.</p></section>' : ""}${canWrite() && deleted ? `<section class="card"><h3>삭제된 계정</h3><p class="hint">되살리면 진행 데이터 없이 빈 계정으로 돌아오고, 영구 삭제하면 UID·이름 기록까지 지워 목록에서 사라집니다.</p><div class="actions"><button class="btn" id="plRestore" type="button">되살리기</button><span class="spacer"></span>${trashBtn("plPurge", "영구 삭제")}</div></section>` : ""}${canWrite() && !deleted && !targetStaff ? `<section class="card"><h3>계정 삭제</h3><p class="hint">진행 데이터·친구·길드 흔적을 지우고 복구할 수 없습니다. 접속 중이면 「계정이 삭제되었습니다」 팝업 후 타이틀로 돌아갑니다. UID·이름은 기록용으로 남습니다.</p><label for="dlReason">삭제 사유 (필수)</label><input id="dlReason" maxlength="300" placeholder="예: 테스트 계정" /><div class="actions"><button class="btn danger" id="dlApply" type="button">계정 삭제</button></div></section>` : ""}<p class="msg" id="plMsg" role="status"></p>`;
     if (staff) mountCurrencyLog(id);
     if (staff) mountSanctions(id);
+    if (staff && !deleted) mountProfileReset(id);
     if (staff && !deleted) {
       setVal($("plSt"), p.status);
       $("plApply").onclick = async () => {
@@ -380,6 +399,9 @@ async function mountSanctions(id) {
       const d = r.detail || {};
       if (r.action === "player_status") return `<b>${esc(PLAYER_STATUS[d.status] || d.status)}</b>${d.until ? ` · ${esc(dt(d.until))}까지` : ""}${d.reason ? ` · ${esc(d.reason)}` : ""}`;
       if (r.action === "asset_adjust") return `<b>${esc(assetLabel(d.asset))} ${d.delta > 0 ? "+" : ""}${num(d.delta)}</b>${d.reason ? ` · ${esc(d.reason)}` : ""}`;
+      if (r.action === "profile_reset") return `<b>${esc(PROFILE_KIND[d.kind] || "프로필 초기화")}</b>${d.reason ? ` · ${esc(d.reason)}` : ""}`;
+      if (r.action === "purchase_refund") return `<b>결제 환불 ${esc(d.product || "")}</b>${Array.isArray(d.clawback) && d.clawback.length ? ` · 회수 ${esc(d.clawback.filter((c) => !c.skipped).map((c) => `${walletLabel(c.asset)} ${num(c.delta)}`).join(", "))}` : ""}${d.reason ? ` · ${esc(d.reason)}` : ""}`;
+      if (r.action === "ranking_remove") return `<b>랭킹 기록 제외</b> ${esc(BOARDS.find(([k]) => k === d.board)?.[1] || d.board || "")} ${esc(d.period || "")}${d.reason ? ` · ${esc(d.reason)}` : ""}`;
       return `<b>계정 삭제</b>${d.reason ? ` · ${esc(d.reason)}` : ""}`;
     };
     card.innerHTML = `<h3>제재·조정 이력 <span class="hint">최근 50건</span></h3><div class="ledger">${rows.map((r) => `<p>${line(r)} <small>${esc(dt(r.at))} · ${esc(r.actor_email || "시스템")}</small></p>`).join("") || '<p class="hint">기록이 없습니다.</p>'}</div>`;
@@ -1124,7 +1146,7 @@ ${ro ? "" : `<div class="actions"><button class="btn primary" id="ecSave" type="
 }
 
 // ───────── 감사 로그 ─────────
-const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", config_set: "운영 설정", staff_role: "운영진 권한", mail_send_many: "묶음 우편 발송", faq_save: "FAQ 저장", faq_delete: "FAQ 삭제", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정", player_delete: "계정 삭제", trash_move: "휴지통 이동", trash_restore: "휴지통 복구", trash_purge: "영구 삭제", recurring_mail_save: "정기 우편 저장", recurring_mail_set: "정기 우편 상태", patch_note_save: "패치노트 저장", patch_note_delete: "패치노트 삭제", event_content_save: "정기 이벤트 저장", event_content_delete: "정기 이벤트 삭제", event_rotation_set: "정기 이벤트 편성" };
+const AUDIT_LABEL = { ticket_reply: "문의 답변", ticket_status: "문의 상태", coupon_create: "쿠폰 생성", coupon_status: "쿠폰 상태", coupon_reveal: "쿠폰 코드 열람", config_update: "운영 설정", config_set: "운영 설정", staff_role: "운영진 권한", mail_send_many: "묶음 우편 발송", faq_save: "FAQ 저장", faq_delete: "FAQ 삭제", mail_send: "우편 발송", mail_cancel: "우편 취소", player_status: "계정 상태", asset_adjust: "재화 조정", player_delete: "계정 삭제", trash_move: "휴지통 이동", trash_restore: "휴지통 복구", trash_purge: "영구 삭제", recurring_mail_save: "정기 우편 저장", recurring_mail_set: "정기 우편 상태", patch_note_save: "패치노트 저장", patch_note_delete: "패치노트 삭제", event_content_save: "정기 이벤트 저장", event_content_delete: "정기 이벤트 삭제", event_rotation_set: "정기 이벤트 편성", purchase_refund: "결제 환불", banned_word_add: "금칙어 추가", banned_word_remove: "금칙어 제거", profile_reset: "프로필 초기화", ranking_remove: "랭킹 기록 제외", ranking_restore: "랭킹 제외 해제", guild_kick: "길드 추방", guild_transfer: "길드장 위임", guild_rename: "길드 이름 변경", guild_reset_notice: "길드 공지 비우기", guild_disband: "길드 해산", banner_save: "배너 저장", banner_delete: "배너 삭제" };
 async function viewAudit() {
   // 담당자 UUID 를 이메일로 바꿔 보여 준다(운영진 목록을 못 읽으면 앞 8자리).
   const staff = await rpc("admin_list_staff", {}).catch(() => []);
@@ -1388,7 +1410,321 @@ async function editFaq(id) {
     };
 }
 
-const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit };
+// ───────── 운영 콘솔 v3 ─────────
+// 결제·환불, 랭킹 관리, 길드 관리, 금칙어, 공지 팝업 배너. 표·게임 함수는 게임 저장소의 20261120000000_ops_moderation.sql 이 먼저 만든다.
+const MIGRATION_V3 = "20261120100000_ops_console_v3.sql (게임 저장소 20261120000000_ops_moderation.sql 먼저)";
+const needsDbCard = (eyebrow, title) => `<div class="ops-single"><section class="card"><p class="eyebrow">${esc(eyebrow)}</p><h2>${esc(title)}</h2>${needsDbHtml(MIGRATION_V3)}</section></div>`;
+// 실패가 「아직 DB에 없음」이면 안내 카드를 세우고 true를 돌려준다.
+function needsDb(e, eyebrow, title) {
+  if (!NEEDS_DB.test(e.message)) return false;
+  $("opsBody").innerHTML = needsDbCard(eyebrow, title);
+  return true;
+}
+// 지급 목록(게임의 Grant: currency·item)을 어드민 재화 키로 옮긴다.
+const grantAsset = (g) => (g?.kind === "currency" ? g.currency : g?.kind === "item" ? `item:${g.itemId}` : null);
+const grantChips = (list) =>
+  (list || []).map((g) => [grantAsset(g), g?.amount]).filter(([a, n]) => a && Number(n) > 0).map(([a, n]) => `<span class="chip">${esc(walletLabel(a))} <b>${num(n)}</b></span>`).join("") || '<span class="hint">지급 기록 없음</span>';
+
+// ── 결제·환불 ──
+async function viewPurchases() {
+  let summary;
+  try {
+    [summary] = await Promise.all([rpc("admin_purchase_summary", { p_days: 30 }), assets()]);
+  } catch (e) {
+    if (needsDb(e, "BILLING DESK", "결제·환불")) return;
+    throw e;
+  }
+  const top = (summary.products || []).slice(0, 5).map((p) => `<span class="chip">${esc(p.product)} <b>${num(p.count)}</b></span>`).join("") || '<span class="hint">최근 결제가 없습니다.</span>';
+  shell({
+    title: "결제 기록",
+    filters: `<div class="stats"><div class="stat"><strong>${num(summary.count)}</strong><span>30일 결제</span></div><div class="stat"><strong>${num(summary.buyers)}</strong><span>결제 계정</span></div><div class="stat"><strong>${num(summary.refunded)}</strong><span>30일 환불</span></div></div><p class="hint">많이 팔린 상품 ${top}</p><form class="ops-search" id="puForm"><input id="puQuery" placeholder="UID 9자리 · 거래 ID · 상품 ID" autocomplete="off" aria-label="결제 검색" /><button class="btn primary" type="submit">검색</button></form>${selectHtml("puState", "환불 여부", [["", "전체"], ["false", "정상"], ["true", "환불됨"]], "")}`,
+  });
+  $("opsDetail").innerHTML = placeholder("결제를 고르면 지급 내용과 환불 처리가 열립니다.");
+  let rows = [];
+  $("puForm").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const st = $("puState").value;
+    try {
+      rows = await rpc("admin_list_purchases", { p_query: $("puQuery").value.trim(), p_refunded: st === "" ? null : st === "true", p_limit: 100 });
+      $("opsCount").textContent = `${rows.length}건 · 최근 순 · 게임 저장의 결제 영수증에서 자동으로 기록됩니다.`;
+      $("opsList").innerHTML = rows.map((r) => `<button class="nrow" data-id="${esc(r.transaction_id)}"><span class="tag ${r.refunded_at ? "scheduled" : "pub"}">${r.refunded_at ? "환불" : "정상"}</span><b>${esc(r.product_id || "상품 미상")} · UID ${esc(r.uid)} ${esc(r.nickname || "")}</b><small>${esc(dt(r.recorded_at))}${r.first_bonus ? " · 첫 구매 보너스" : ""}</small></button>`).join("") || '<p class="hint">결제 기록이 없습니다.</p>';
+      $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openPurchase(rows.find((r) => r.transaction_id === b.dataset.id))));
+    } catch (e) {
+      $("opsCount").textContent = e.message;
+    }
+  };
+  $("puState").onchange = () => $("puForm").requestSubmit();
+  $("puForm").requestSubmit();
+}
+function openPurchase(r) {
+  if (!r) return;
+  markSelected(r.transaction_id);
+  const box = $("opsDetail");
+  const claws = Array.isArray(r.clawback) ? r.clawback : [];
+  box.innerHTML = `<section class="card"><p class="eyebrow">TRANSACTION</p><h2>${esc(r.product_id || "상품 미상")}</h2><p class="hint"><span class="tag ${r.refunded_at ? "scheduled" : "pub"}">${r.refunded_at ? "환불됨" : "정상 결제"}</span> ${esc(dt(r.recorded_at))}${r.first_bonus ? " · 첫 구매 보너스 적용" : ""}</p><p class="hint">거래 ID <code>${esc(r.transaction_id)}</code></p><p class="hint">구매자 UID ${esc(r.uid)} ${esc(r.nickname || "")} <button class="btn ghost" type="button" id="puPlayer">계정 열기</button></p><h3>지급한 것</h3><p>${grantChips(r.granted)}</p>${r.refunded_at ? `<h3>환불</h3><p class="hint">${esc(dt(r.refunded_at))} · ${esc(r.refund_reason || "")}</p>${claws.length ? `<p>회수 ${claws.map((c) => `<span class="chip">${esc(walletLabel(c.asset))} <b>${num(c.delta)}</b>${c.skipped ? " (회수 불가)" : ""}</span>`).join("")}</p>` : '<p class="hint">재화 회수 없이 표시만 했습니다.</p>'}` : ""}</section>${canWrite() && !r.refunded_at ? `<section class="card"><h3>환불 처리</h3><p class="hint">스토어(구글·애플)에서 이미 환불된 결제를 표시합니다. 결제 취소 자체는 스토어 콘솔에서 합니다.</p><label for="puReason">사유 (필수)</label><input id="puReason" maxlength="200" placeholder="예: 구글 플레이 환불 확인" /><label class="check"><input type="checkbox" id="puClaw" checked /> 지급했던 재화·아이템을 회수(재화 조정으로 차감, 0 아래로는 내려가지 않음)</label><div class="actions"><button class="btn danger" id="puRefund" type="button">환불로 표시</button></div></section>` : ""}<p class="msg" id="puMsg" role="status"></p>`;
+  $("puPlayer").onclick = async () => {
+    await openView("players");
+    $("plQuery").value = String(r.uid);
+    $("plForm").requestSubmit();
+    openPlayer(r.player_id);
+  };
+  if (!$("puRefund")) return;
+  $("puRefund").onclick = async () => {
+    try {
+      const reason = $("puReason").value.trim();
+      if (!reason) throw new Error("사유를 입력해야 합니다.");
+      const claw = $("puClaw").checked;
+      if (!(await api.ask(`UID ${r.uid}의 「${r.product_id}」 결제를 환불로 표시할까요?${claw ? " 지급한 재화·아이템을 회수합니다." : ""} 되돌릴 수 없습니다.`))) return;
+      const res = await rpc("admin_refund_purchase", { p_transaction: r.transaction_id, p_reason: reason, p_clawback: claw });
+      Object.assign(r, { refunded_at: new Date().toISOString(), refund_reason: reason, clawback: claw ? res.clawback : null });
+      openPurchase(r);
+      notify("puMsg", claw ? "환불로 표시하고 회수를 대기열에 올렸습니다." : "환불로 표시했습니다.");
+    } catch (e) {
+      notify("puMsg", e.message, true);
+    }
+  };
+}
+
+// ── 랭킹 관리 ──
+const BOARDS = [["duel", "결투장 (주간)"], ["expedition", "원정 (주간)"], ["arena", "아레나 (주간)"], ["ancient", "고대 지층 (월간)"]];
+async function viewRanking(board = "duel", period = "") {
+  let periods;
+  try {
+    periods = await rpc("admin_competitive_periods", { p_board: board });
+  } catch (e) {
+    if (needsDb(e, "LIVE OPS", "랭킹 관리")) return;
+    throw e;
+  }
+  if (!period || !periods.includes(period)) period = periods[0] || "";
+  const data = period ? await rpc("admin_competitive_scores", { p_board: board, p_period: period, p_limit: 200 }) : { rows: [], bans: [] };
+  const w = canWrite();
+  $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">LIVE OPS</p><h2>랭킹 관리</h2><p class="hint">부정 기록을 지우면 그 기간에는 같은 계정의 점수가 다시 들어오지 않습니다. 이미 보낸 순위 보상 우편은 되돌리지 않으니, 필요하면 계정 화면에서 재화를 조정하세요.</p><div class="row2"><div><label for="rkBoard">랭킹</label>${selectHtml("rkBoard", "랭킹", BOARDS, board)}</div><div><label for="rkPeriod">기간 <span class="hint">시작일</span></label>${periods.length ? selectHtml("rkPeriod", "기간", periods.map((p) => [p, p]), period) : '<p class="hint">기록이 없습니다.</p>'}</div></div>${w ? '<label for="rkReason">제외 사유 (제외할 때 필수)</label><input id="rkReason" maxlength="200" placeholder="예: 비정상 피해량" />' : ""}<p class="msg" id="rkMsg" role="status"></p></section><section class="card"><h3>순위 <span class="hint">상위 ${num(data.rows.length)}명</span></h3><div id="rkRows">${data.rows.map((r) => `<div class="trash-row" data-player="${esc(r.playerId)}"><span class="tag ${r.rank <= 3 ? "scheduled" : ""}">${num(r.rank)}위</span><div class="trash-text"><b>UID ${esc(r.uid)} ${esc(r.nickname || "")}</b><small>점수 ${num(r.score)} · ${esc(dt(r.achievedAt))}</small></div>${w ? '<button class="btn danger" type="button" data-remove>기록 제외</button>' : ""}</div>`).join("") || '<p class="hint">이 기간의 기록이 없습니다.</p>'}</div></section><section class="card"><h3>제외된 계정 <span class="hint">${num(data.bans.length)}명</span></h3><div id="rkBans">${data.bans.map((b) => `<div class="trash-row" data-player="${esc(b.playerId)}"><span class="tag scheduled">제외</span><div class="trash-text"><b>UID ${esc(b.uid)} ${esc(b.nickname || "")}</b><small>${esc(b.reason || "")} · ${esc(dt(b.at))}</small></div>${w ? '<button class="btn ghost" type="button" data-restore>제외 해제</button>' : ""}</div>`).join("") || '<p class="hint">없습니다.</p>'}</div></section></div>`;
+  $("rkBoard").onchange = () => viewRanking($("rkBoard").value);
+  if ($("rkPeriod")) $("rkPeriod").onchange = () => viewRanking(board, $("rkPeriod").value);
+  if (!w) return;
+  const act = async (player, remove, label) => {
+    try {
+      const reason = remove ? $("rkReason").value.trim() : "";
+      if (remove && !reason) throw new Error("제외 사유를 입력하세요.");
+      if (!(await api.ask(label))) return;
+      await rpc("admin_remove_competitive_score", { p_board: board, p_period: period, p_player: player, p_reason: reason, p_remove: remove });
+      await viewRanking(board, period);
+      notify("rkMsg", remove ? "기록을 지우고 이 기간에서 제외했습니다." : "제외를 해제했습니다. 다음 기록부터 다시 들어옵니다.");
+    } catch (e) {
+      notify("rkMsg", e.message, true);
+    }
+  };
+  $("rkRows").querySelectorAll("[data-remove]").forEach((b) => {
+    const row = b.closest(".trash-row");
+    b.onclick = () => act(row.dataset.player, true, `${row.querySelector("b").textContent}의 ${period} 기록을 지우고 이 기간에서 제외할까요?`);
+  });
+  $("rkBans").querySelectorAll("[data-restore]").forEach((b) => {
+    const row = b.closest(".trash-row");
+    b.onclick = () => act(row.dataset.player, false, `${row.querySelector("b").textContent}의 제외를 해제할까요? 지운 기록은 돌아오지 않습니다.`);
+  });
+}
+
+// ── 길드 관리 ──
+const GUILD_ROLE = { leader: "길드장", vice: "부길드장", officer: "간부", member: "길드원" };
+const GUILD_JOIN = { open: "자유 가입", approval: "승인 가입" };
+async function viewGuilds() {
+  shell({ title: "길드", filters: '<form class="ops-search" id="gdForm"><input id="gdQuery" placeholder="길드 이름 · 길드원 UID" autocomplete="off" aria-label="길드 검색" /><button class="btn primary" type="submit">검색</button></form>' });
+  $("opsDetail").innerHTML = placeholder("길드를 검색해 고르세요.");
+  $("gdForm").onsubmit = async (ev) => {
+    ev.preventDefault();
+    try {
+      const rows = await rpc("admin_list_guilds", { p_query: $("gdQuery").value });
+      $("opsCount").textContent = `${rows.length}개 · 인원 많은 순`;
+      $("opsList").innerHTML = rows.map((g) => `<button class="nrow" data-id="${esc(g.id)}"><span class="tag">${num(g.members)}명</span><b>${esc(g.name)}</b><small>길드장 ${esc(g.leader || "—")} · 부흥도 ${num(g.prosperity || 0)} · ${esc(dt(g.created_at))}</small></button>`).join("") || '<p class="hint">검색 결과가 없습니다.</p>';
+      $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openGuild(b.dataset.id)));
+    } catch (e) {
+      if (NEEDS_DB.test(e.message)) $("opsDetail").innerHTML = `<section class="card">${needsDbHtml(MIGRATION_V3)}</section>`;
+      $("opsCount").textContent = NEEDS_DB.test(e.message) ? "DB 업데이트가 필요합니다." : e.message;
+    }
+  };
+  $("gdForm").requestSubmit();
+}
+async function openGuild(id) {
+  const box = $("opsDetail");
+  markSelected(id);
+  box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
+  let g;
+  try {
+    g = await rpc("admin_guild_detail", { p_guild: id });
+  } catch (e) {
+    return fail(box, e);
+  }
+  const w = canWrite();
+  box.innerHTML = `<section class="card"><p class="eyebrow">GUILD</p><h2>${esc(g.name)}</h2><p class="hint">${num(g.members.length)}명 · 부흥도 ${num(g.prosperity || 0)} · ${esc(GUILD_JOIN[g.joinMode] || g.joinMode || "")} · 창설 ${esc(dt(g.createdAt))}</p><h3>공지</h3><p class="hint">${esc(g.notice || "(비어 있음)")}</p></section>${w ? '<section class="card"><h3>조치 사유 <span class="hint">모든 조치에 필수 · 감사 로그에 남습니다</span></h3><input id="gdReason" maxlength="300" aria-label="조치 사유" placeholder="예: 부적절한 길드 이름 신고" /></section>' : ""}<section class="card"><h3>길드원</h3><div id="gdMembers">${g.members.map((m) => `<div class="trash-row" data-player="${esc(m.playerId)}"><span class="tag ${m.role === "leader" ? "scheduled" : ""}">${esc(GUILD_ROLE[m.role] || m.role)}</span><div class="trash-text"><b>UID ${esc(m.uid)} ${esc(m.name)}</b><small>Lv.${num(m.level || 0)} · 이번 주 기여 ${num(m.contributionWeek || 0)} · 누적 ${num(m.contributionTotal || 0)} · 마지막 활동 ${esc(dt(m.lastActiveAt))}</small></div>${w && m.role !== "leader" ? '<button class="btn ghost" type="button" data-transfer>길드장 위임</button><button class="btn danger" type="button" data-kick>추방</button>' : ""}</div>`).join("") || '<p class="hint">길드원이 없습니다.</p>'}</div></section>${w ? `<section class="card"><h3>이름·공지</h3><label for="gdName">새 이름 <span class="hint">2~12자 · 문자·숫자·공백</span></label><input id="gdName" maxlength="12" value="${esc(g.name)}" /><div class="actions"><button class="btn primary" id="gdRename" type="button">이름 변경</button><button class="btn ghost" id="gdNotice" type="button">공지 비우기</button></div></section><section class="card"><h3>길드 해산</h3><p class="hint">모든 길드원이 탈퇴 처리되고 길드 코인·기여 기록이 함께 사라집니다. 되돌릴 수 없습니다.</p><div class="actions"><button class="btn danger" id="gdDisband" type="button">길드 해산</button></div></section>` : ""}<p class="msg" id="gdMsg" role="status"></p>`;
+  if (!w) return;
+  const act = async (action, args, question, done, after = () => openGuild(id)) => {
+    try {
+      const reason = $("gdReason").value.trim();
+      if (!reason) throw new Error("조치 사유를 입력하세요.");
+      if (!(await api.ask(question))) return;
+      await rpc("admin_guild_action", { p_guild: id, p_action: action, p_player: args.player || null, p_name: args.name || null, p_reason: reason });
+      await after();
+      notify("gdMsg", done);
+    } catch (e) {
+      notify("gdMsg", e.message, true);
+    }
+  };
+  $("gdMembers").querySelectorAll(".trash-row").forEach((row) => {
+    const who = row.querySelector("b").textContent;
+    const player = row.dataset.player;
+    const kick = row.querySelector("[data-kick]");
+    const transfer = row.querySelector("[data-transfer]");
+    if (kick) kick.onclick = () => act("kick", { player }, `${who}을(를) 「${g.name}」에서 추방할까요?`, "추방했습니다.");
+    if (transfer) transfer.onclick = () => act("transfer", { player }, `${who}에게 길드장을 넘길까요? 지금 길드장은 부길드장이 됩니다.`, "길드장을 넘겼습니다.");
+  });
+  $("gdRename").onclick = () => {
+    const name = $("gdName").value.trim().replace(/\s+/g, " ");
+    act("rename", { name }, `길드 이름을 「${name}」(으)로 바꿀까요?`, "이름을 바꿨습니다.");
+  };
+  $("gdNotice").onclick = () => act("reset_notice", {}, `「${g.name}」의 공지를 비울까요?`, "공지를 비웠습니다.");
+  $("gdDisband").onclick = () =>
+    act("disband", {}, `「${g.name}」을(를) 해산할까요? 길드원 ${g.members.length}명이 모두 탈퇴 처리되고 되돌릴 수 없습니다.`, "해산했습니다.", async () => {
+      box.innerHTML = placeholder("해산했습니다.");
+      $("gdForm").requestSubmit();
+    });
+}
+
+// ── 금칙어 ──
+async function viewBannedWords() {
+  let words;
+  try {
+    words = await rpc("admin_list_banned_words", {});
+  } catch (e) {
+    if (needsDb(e, "SAFETY", "금칙어")) return;
+    throw e;
+  }
+  const w = canWrite();
+  $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">SAFETY</p><h2>금칙어</h2><p class="hint">새로 정하거나 바꾸는 닉네임에 이 낱말이 들어 있으면 서버가 거절합니다(공백·대소문자 무시, 부분 일치). 이미 쓰고 있는 이름은 계정 화면의 「닉네임 초기화」로 비웁니다. 바꾼 목록은 5분 안에 게임 서버에 반영됩니다.</p>${w ? '<form class="ops-search" id="bwForm"><input id="bwWord" maxlength="40" placeholder="낱말 추가 (1~40자)" autocomplete="off" aria-label="금칙어" /><button class="btn primary" type="submit">추가</button></form>' : ""}<p class="msg" id="bwMsg" role="status"></p><p class="hint">${num(words.length)}개</p><div id="bwList" class="week-list">${words.map((x) => `<div class="trash-row" data-word="${esc(x.word)}"><div class="trash-text"><b>${esc(x.word)}</b><small>${esc(dt(x.createdAt))}</small></div>${w ? '<button class="btn ghost" type="button" data-remove>빼기</button>' : ""}</div>`).join("") || '<p class="hint">등록된 금칙어가 없습니다.</p>'}</div></section></div>`;
+  if (!w) return;
+  const set = async (word, banned) => {
+    try {
+      const r = await rpc("admin_set_banned_word", { p_word: word, p_banned: banned });
+      await viewBannedWords();
+      notify("bwMsg", banned ? `「${r.word}」을(를) 추가했습니다.` : `「${r.word}」을(를) 뺐습니다.`);
+    } catch (e) {
+      notify("bwMsg", e.message, true);
+    }
+  };
+  $("bwForm").onsubmit = (ev) => {
+    ev.preventDefault();
+    const word = $("bwWord").value.trim();
+    if (word) set(word, true);
+  };
+  $("bwList").querySelectorAll("[data-remove]").forEach((b) => {
+    const word = b.closest(".trash-row").dataset.word;
+    b.onclick = async () => {
+      if (await api.ask(`금칙어 「${word}」을(를) 뺄까요?`)) set(word, false);
+    };
+  });
+}
+
+// ── 공지 팝업 배너 ──
+// 기간 안에 접속한 플레이어에게 게임이 한 번 띄운다. 원문 + 직접 쓴 영어·일본어 원고만(자동 번역 없음).
+const BANNER_LOCALES = [["en", "English"], ["ja", "日本語"]];
+const bannerState = (b, now = Date.now()) => (new Date(b.starts_at).getTime() > now ? ["scheduled", "예정"] : new Date(b.ends_at).getTime() <= now ? ["", "종료"] : ["pub", "노출 중"]);
+async function viewBanners() {
+  shell({ title: "공지 배너", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">새 배너</button>' : "" });
+  $("opsDetail").innerHTML = placeholder(canWrite() ? "목록에서 배너를 고르거나 새 배너를 만드세요." : "목록에서 배너를 고르세요.");
+  if (canWrite()) $("opsNew").onclick = () => editBanner(null);
+  await loadBannerList();
+}
+let bannerRows = [];
+async function loadBannerList(selectId) {
+  try {
+    bannerRows = await rpc("admin_list_banners", {});
+    $("opsCount").textContent = `${bannerRows.length}개 · 기간 안에 접속한 플레이어에게 한 번씩 뜹니다(동시에 최대 5개).`;
+    $("opsList").innerHTML = bannerRows.map((b) => {
+      const [cls, label] = bannerState(b);
+      return `<button class="nrow" data-id="${esc(b.id)}"><span class="tag ${cls}">${label}</span><b>${esc(b.title)}</b><small>${esc(dt(b.starts_at))} ~ ${esc(dt(b.ends_at))}${Object.keys(b.translations || {}).length ? ` · ${Object.keys(b.translations).join("·")}` : ""}</small></button>`;
+    }).join("") || '<p class="hint">등록된 배너가 없습니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => editBanner(b.dataset.id)));
+    markSelected(selectId);
+  } catch (e) {
+    if (NEEDS_DB.test(e.message)) $("opsDetail").innerHTML = `<section class="card">${needsDbHtml(MIGRATION_V3)}</section>`;
+    $("opsCount").textContent = NEEDS_DB.test(e.message) ? "DB 업데이트가 필요합니다." : e.message;
+  }
+}
+function editBanner(id) {
+  const box = $("opsDetail");
+  markSelected(id);
+  const now = new Date();
+  const b = (id && bannerRows.find((x) => x.id === id)) || { title: "", body: "", translations: {}, starts_at: now.toISOString(), ends_at: new Date(now.getTime() + 7 * 86400000).toISOString() };
+  const ro = canWrite() ? "" : " disabled";
+  box.innerHTML = `<section class="card"><h2>${id ? "배너 편집" : "새 배너"}</h2><label for="bnTitle">제목 (원문 · 한국어) <span class="hint">60자</span></label><input id="bnTitle" maxlength="60" value="${esc(b.title)}"${ro} /><label for="bnBody">본문 <span class="hint">600자</span></label><textarea id="bnBody" maxlength="600" rows="5"${ro}>${esc(b.body)}</textarea>${BANNER_LOCALES.map(([loc, name]) => `<details class="faq-locale"${b.translations?.[loc] ? " open" : ""}><summary>${name} 원고 <span class="hint">비워 두면 원문을 보여 줍니다</span></summary><label for="bnTitle_${loc}">제목</label><input id="bnTitle_${loc}" maxlength="60" value="${esc(b.translations?.[loc]?.title || "")}"${ro} /><label for="bnBody_${loc}">본문</label><textarea id="bnBody_${loc}" maxlength="600" rows="4"${ro}>${esc(b.translations?.[loc]?.body || "")}</textarea></details>`).join("")}<div class="row2"><div><label for="bnStart">시작</label><input id="bnStart" data-datetime data-presets="now,+1h,tomorrow9" aria-label="배너 시작 시각" value="${fmtLocal(new Date(b.starts_at))}"${ro} /></div><div><label for="bnEnd">종료</label><input id="bnEnd" data-datetime data-presets="+1d,+3d,+7d,+30d" aria-label="배너 종료 시각" value="${fmtLocal(new Date(b.ends_at))}"${ro} /></div></div>${canWrite() ? `<div class="actions"><button class="btn primary" id="bnSave" type="button">저장</button><span class="spacer"></span>${id ? trashBtn("bnDel", "삭제") : ""}</div>` : '<p class="hint">조회만 가능한 권한입니다.</p>'}<p class="msg" id="bnMsg" role="status"></p></section>`;
+  enhanceDateTimes(box);
+  if (!canWrite()) return;
+  $("bnSave").onclick = async () => {
+    try {
+      const title = $("bnTitle").value.trim();
+      if (!title) throw new Error("제목을 입력하세요.");
+      const translations = {};
+      for (const [loc, name] of BANNER_LOCALES) {
+        const t = $(`bnTitle_${loc}`).value.trim();
+        const body = $(`bnBody_${loc}`).value.trim();
+        if (!t && !body) continue;
+        if (!t) throw new Error(`${name} 원고의 제목을 쓰거나 원고를 모두 비워 두세요.`);
+        translations[loc] = { title: t, body };
+      }
+      const startsAt = parseLocal($("bnStart").value);
+      const endsAt = parseLocal($("bnEnd").value);
+      if (!startsAt || !endsAt) throw new Error("시작·종료 시각을 모두 정하세요.");
+      if (new Date(endsAt) <= new Date(startsAt)) throw new Error("종료 시각이 시작 시각보다 늦어야 합니다.");
+      const r = await rpc("admin_save_banner", { p: { id: id || null, title, body: $("bnBody").value.trim(), translations, startsAt, endsAt } });
+      await loadBannerList(r.id);
+      editBanner(r.id);
+      notify("bnMsg", "저장했습니다. 이미 본 플레이어에게는 다시 뜨지 않습니다.");
+    } catch (e) {
+      notify("bnMsg", e.message, true);
+    }
+  };
+  if ($("bnDel"))
+    $("bnDel").onclick = async () => {
+      if (!(await api.ask(`「${b.title}」 배너를 삭제할까요? 더 이상 뜨지 않습니다.`))) return;
+      try {
+        await rpc("admin_delete_banner", { p_id: id });
+        box.innerHTML = placeholder("삭제했습니다.");
+        await loadBannerList();
+      } catch (e) {
+        notify("bnMsg", e.message, true);
+      }
+    };
+}
+
+// ── 계정 화면의 프로필 초기화 카드 ──
+const PROFILE_KIND = { nickname_reset: "닉네임 초기화", bio_reset: "한 줄 소개 초기화" };
+async function mountProfileReset(id) {
+  const card = $("prCard");
+  if (!card) return;
+  let rows;
+  try {
+    rows = await rpc("admin_profile_actions", { p_player: id });
+  } catch (e) {
+    if (card.isConnected) card.innerHTML = `<h3>닉네임·소개 초기화</h3>${NEEDS_DB.test(e.message) ? needsDbHtml(MIGRATION_V3) : `<p class="msg bad">${esc(e.message)}</p>`}`;
+    return;
+  }
+  if (!card.isConnected) return;
+  card.innerHTML = `<h3>닉네임·소개 초기화</h3><p class="hint">다음 서버 호출(접속 중이면 곧) 때 게임이 그 칸을 비우고 플레이어에게 사유와 함께 한 번 알립니다. 닉네임은 다시 정하게 되며 변경 대기 기간은 세지 않습니다.</p><div class="row2"><div><label for="prKind">대상</label>${selectHtml("prKind", "대상", Object.entries(PROFILE_KIND), "nickname_reset")}</div><div><label for="prReason">사유 (필수 · 플레이어에게 보입니다)</label><input id="prReason" maxlength="200" placeholder="예: 부적절한 닉네임" /></div></div><div class="actions"><button class="btn primary" id="prApply" type="button">초기화 예약</button></div>${rows.length ? `<div class="ledger">${rows.map((a) => `<p><b>${esc(PROFILE_KIND[a.kind] || a.kind)}</b> · ${esc(a.reason)} <small>${esc(dt(a.createdAt))} · ${a.appliedAt ? `${esc(dt(a.appliedAt))} 반영` : "반영 대기"}</small></p>`).join("")}</div>` : ""}<p class="msg" id="prMsg" role="status"></p>`;
+  $("prApply").onclick = async () => {
+    try {
+      const reason = $("prReason").value.trim();
+      if (!reason) throw new Error("사유를 입력하세요.");
+      const kind = $("prKind").value;
+      if (!(await api.ask(`${PROFILE_KIND[kind]}을(를) 예약할까요?`))) return;
+      await rpc("admin_reset_profile", { p_player: id, p_kind: kind, p_reason: reason });
+      await mountProfileReset(id);
+      notify("prMsg", "예약했습니다. 다음 접속 때 반영됩니다.");
+    } catch (e) {
+      notify("prMsg", e.message, true);
+    }
+  };
+}
+
+const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit, purchases: viewPurchases, ranking: () => viewRanking(), guilds: viewGuilds, bannedwords: viewBannedWords, banners: viewBanners };
 
 export async function openView(id) {
   const view = VIEWS.find((v) => v.id === id && v.roles.includes(api.role));
