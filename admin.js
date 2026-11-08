@@ -633,8 +633,11 @@ $("template").addEventListener("change", async () => {
 $("gameEvent").addEventListener("change", () => {
   const event = GAME_EVENTS.find((e) => e.id === $("gameEvent").value);
   if (event) {
-    $("eventStart").value = toLocalInput(event.starts_at);
-    $("eventEnd").value = toLocalInput(event.ends_at);
+    // 정기 이벤트(주간 교대)는 정의 기간이 2099년까지라, 이번 주(UTC 월요일 00:00 ~ 다음 월요일)를 채운다 — 다른 주면 고쳐 쓴다.
+    const now = new Date();
+    const monday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((now.getUTCDay() + 6) % 7));
+    $("eventStart").value = toLocalInput(event.weekly ? new Date(monday).toISOString() : event.starts_at);
+    $("eventEnd").value = toLocalInput(event.weekly ? new Date(monday + 7 * 86400000).toISOString() : event.ends_at);
     if (!cur.tr[cur.source_locale].title.trim() && lang === cur.source_locale) {
       $("title").value = event.title;
       if (!$("summary").value.trim()) $("summary").value = event.subtitle;
