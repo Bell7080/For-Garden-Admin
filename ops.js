@@ -1277,6 +1277,24 @@ function barChart(series, key, label) {
     })
     .join("")}</div>`;
 }
+// 행동·결제 퍼널(admin_analytics). 게임 계측(20261122000000_game_events)과 어드민(20261122100000_ops_analytics) 마이그레이션 전에는 안내만 선다.
+const MIGRATION_ANALYTICS = "20261122100000_ops_analytics.sql";
+const ratio = (n, of) => (Number(of) > 0 ? (100 * Number(n)) / Number(of) : null);
+function analyticsHtml(a) {
+  if (!a) return `<section class="card"><h3>퍼널·잔존</h3><p class="hint">퍼널을 보려면 게임 계측(20261122000000_game_events.sql)과 ${esc(MIGRATION_ANALYTICS)}을 적용하세요.</p></section>`;
+  const f = a.funnel;
+  const steps = [["가입", f.signups], ["튜토리얼 완료", f.tutorial], ["1-5 클리어", f.stage1_5], ["1-10 클리어", f.stage1_10], ["2-10 클리어", f.stage2_10], ["첫 결제", f.firstPurchase]];
+  const ret = ["d1", "d7", "d30"].map((k) => {
+    const r = a.retention?.[k];
+    return `<div class="stat"><strong>${pct(r ? ratio(r.returned, r.cohort) : null)}</strong><span>${k.toUpperCase()} 잔존${r ? ` (${num(r.returned)}/${num(r.cohort)})` : ""}</span></div>`;
+  }).join("");
+  const list = (rows, label, value) => rows.length ? rows.map((x) => `<p><b>${esc(label(x))}</b> ${num(value(x))}</p>`).join("") : '<p class="hint">기록 없음</p>';
+  return `<section class="card"><h3>퍼널 (최근 ${num(f.days)}일 가입)</h3><div class="ledger">${steps.map(([label, n]) => `<p><b>${esc(label)}</b> ${num(n)} · ${pct(ratio(n, f.signups))}</p>`).join("")}</div>
+  <h3>잔존</h3><div class="stats dash-stats">${ret}</div>
+  <h3>떠난 계정의 마지막 관문</h3><p class="hint">최근 ${num(f.days)}일 가입 중 3일 넘게 접속하지 않은 계정이 마지막으로 깬 본편 관문입니다.</p><div class="ledger">${list(a.dropoff || [], (x) => x.stage, (x) => x.players)}</div>
+  <h3>첫 결제 상품</h3><div class="ledger">${list(a.firstPurchases || [], (x) => x.product, (x) => x.players)}</div>
+  <h3>최근 7일 호출 수</h3>${a.research7d ? `<p class="hint">연구 ${num(a.research7d.pulls)}회 · ${num(a.research7d.players)}명</p>` : ""}<div class="ledger">${list(a.calls || [], (x) => x.method, (x) => x.calls)}</div></section>`;
+}
 async function viewDashboard() {
   let d;
   try {
@@ -1296,6 +1314,7 @@ async function viewDashboard() {
   ];
   const anomalies = await rpc("admin_anomalies", {}).catch(() => null);
   if (anomalies) todo.push([anomalies.items.length, "이상 징후", "anomalies"]);
+  const analytics = await rpc("admin_analytics", { p_days: 30 }).catch(() => null);
   const lastD1 = [...s].reverse().find((x) => x.d1 != null);
   $("opsBody").innerHTML = `<div class="ops-single"><section class="card"><p class="eyebrow">OVERVIEW · ${esc(d.today)} (한국 시간)</p><h2>운영 현황</h2>
   <p class="hint"><span class="tag ${d.live.maintenance ? "scheduled" : "pub"}">${d.live.maintenance ? "점검 중" : "정상 운영"}</span> 진행 중 우편 ${num(d.live.mails)} · 사용 가능 쿠폰 ${num(d.live.coupons)}</p>
@@ -1313,6 +1332,7 @@ async function viewDashboard() {
   <section class="card"><h3>일별 접속(DAU)</h3>${barChart(s, "dau", "DAU")}<h3>일별 신규 가입</h3>${barChart(s, "new", "신규 가입")}
   <h3>D1 잔존</h3><div class="ledger d1-row">${s.filter((x) => x.new > 0).map((x) => `<p><b>${esc(String(x.day).slice(5))}</b> 가입 ${num(x.new)} · 다음 날 ${pct(x.d1)}</p>`).join("") || '<p class="hint">최근 14일 가입 기록이 없습니다.</p>'}</div>
   <p class="hint">일별 접속은 DB 업데이트 이후부터 쌓입니다. 그 이전 날은 마지막 접속일만 남아 있어 작게 보일 수 있습니다.</p></section>
+  ${analyticsHtml(analytics)}
   <section class="card"><h3>최근 7일 접속 환경</h3><div class="chips">${Object.entries(d.platforms || {}).map(([k, v]) => `<span class="chip">${esc(PLATFORM[k] || k)} <b>${num(v)}</b></span>`).join("") || '<span class="hint">기록 없음</span>'}</div><h3>앱 버전</h3><div class="chips">${(d.versions || []).map((v) => `<span class="chip">v${esc(v.version)} <b>${num(v.players)}</b></span>`).join("") || '<span class="hint">기록 없음</span>'}</div></section></div>`;
   $("opsBody").querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => openView(b.dataset.go)));
 }
