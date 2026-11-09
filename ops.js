@@ -47,6 +47,9 @@ const ERRORS = {
   segment_empty: "조건에 맞는 계정이 없습니다.",
   segment_too_large: "한 번에 5만 명까지 보낼 수 있습니다. 조건을 좁히세요.",
   invalid_rule: "올바르지 않은 규칙입니다.",
+  invalid_schedule_kind: "일정 종류는 배너·상품·이벤트·로비 카드 중 하나입니다.",
+  invalid_schedule_id: "ID는 1~96자로 입력하세요.",
+  schedule_not_found: "덮어 둔 일정이 없습니다. 이미 정의 기간으로 돌아가 있습니다.",
 };
 // 마이그레이션이 아직 적용되지 않은 함수·표를 부르면 PostgREST 가 PGRST202/PGRST205 를 돌려준다.
 const NEEDS_DB = /Could not find the (function|table)|PGRST20[25]|\(404\)/;
@@ -60,6 +63,7 @@ const VIEWS = [
   { id: "mails", label: "우편", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "REWARD DESK", title: "우편·보상 발송" },
   { id: "coupons", label: "쿠폰", roles: ["owner", "operator"], eyebrow: "REWARD DESK", title: "쿠폰 관리" },
   { id: "events", label: "정기 이벤트", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "정기 이벤트" },
+  { id: "schedule", label: "운영 일정", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "배너·상품 운영 일정" },
   { id: "banners", label: "공지 배너", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "공지 팝업 배너" },
   { id: "purchases", label: "결제", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "BILLING DESK", title: "결제·환불" },
   { id: "ranking", label: "랭킹", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "랭킹 관리" },
@@ -1797,6 +1801,153 @@ function editBanner(id) {
     };
 }
 
+// ── 운영 일정 ──
+// 배너·상품·이벤트·로비 카드를 「언제 여는가」만 덮는다. 무엇이 나오고 얼마인지는 게임 정의가 갖는다.
+// 고를 수 있는 ID와 정의 기간은 배포된 게임이 구운 /site/schedule.json에서 읽는다 — 손으로 적은 오타가 아무것도 덮지 못한 채 남지 않게.
+const MIGRATION_SCHEDULE = "20261123100000_ops_schedule.sql (게임 저장소 20261123000000_live_schedule.sql 먼저)";
+const SCHEDULE_CATALOG_URL = "https://forgarden.vercel.app/site/schedule.json";
+const SCHEDULE_KIND = { banner: "연구 배너", product: "상품", event: "이벤트", lobby: "로비 카드" };
+let scheduleRows = [];
+let scheduleCatalog = null;
+let scheduleFilter = "all";
+const scheduleKey = (kind, id) => `${kind}:${id}`;
+async function loadScheduleCatalog() {
+  if (scheduleCatalog) return scheduleCatalog;
+  try {
+    const r = await fetch(SCHEDULE_CATALOG_URL, { cache: "no-store" });
+    scheduleCatalog = r.ok ? ((await r.json()).items ?? []) : [];
+  } catch {
+    scheduleCatalog = [];
+  }
+  return scheduleCatalog;
+}
+const windowText = (s, e) => (s || e ? `${s ? dt(s) : "처음부터"} ~ ${e ? dt(e) : "끝없이"}` : "늘 열림");
+const scheduleState = (row, now = Date.now()) => {
+  if (!row.enabled) return ["", "꺼 둠"];
+  if (row.startsAt && new Date(row.startsAt).getTime() > now) return ["scheduled", "예정"];
+  if (row.endsAt && new Date(row.endsAt).getTime() <= now) return ["", "종료"];
+  return ["pub", "열림"];
+};
+async function viewSchedule() {
+  const filters = `<div class="ops-search"><select id="schFilter" aria-label="종류">${[["all", "전체"], ...Object.entries(SCHEDULE_KIND), ["override", "덮어 둔 것만"]].map(([v, l]) => `<option value="${v}"${v === scheduleFilter ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></div>`;
+  shell({ title: "운영 일정", action: canWrite() ? '<button class="btn primary" id="opsNew" type="button">일정 덮기</button>' : "", filters });
+  $("opsDetail").innerHTML = placeholder("목록에서 항목을 고르세요. 줄이 없는 항목은 게임 정의에 적힌 기간 그대로 돕니다.");
+  if (canWrite()) $("opsNew").onclick = () => editSchedule(null);
+  $("schFilter").onchange = () => {
+    scheduleFilter = $("schFilter").value;
+    renderScheduleList();
+  };
+  try {
+    [scheduleRows] = await Promise.all([rpc("admin_list_schedule", {}), loadScheduleCatalog()]);
+  } catch (e) {
+    if (NEEDS_DB.test(e.message)) {
+      $("opsDetail").innerHTML = `<section class="card">${needsDbHtml(MIGRATION_SCHEDULE)}</section>`;
+      $("opsCount").textContent = "DB 업데이트가 필요합니다.";
+      return;
+    }
+    $("opsCount").textContent = e.message;
+    return;
+  }
+  renderScheduleList();
+}
+// 목록: 배너·이벤트·로비 카드는 늘, 상품은 덮어 둔 것만(백여 개라 다 세우면 정작 덮은 줄이 묻힌다). 목록에 없는 ID를 덮은 줄도 남긴다.
+function scheduleItems() {
+  const overrides = new Map(scheduleRows.map((r) => [scheduleKey(r.kind, r.id), r]));
+  const seen = new Set();
+  const items = [];
+  for (const c of scheduleCatalog ?? []) {
+    const key = scheduleKey(c.kind, c.id);
+    const o = overrides.get(key);
+    if (c.kind === "product" && !o) continue;
+    seen.add(key);
+    items.push({ kind: c.kind, id: c.id, name: c.name, def: c, override: o });
+  }
+  for (const o of scheduleRows) if (!seen.has(scheduleKey(o.kind, o.id))) items.push({ kind: o.kind, id: o.id, name: o.id, def: null, override: o });
+  return items.filter((it) => (scheduleFilter === "all" ? true : scheduleFilter === "override" ? !!it.override : it.kind === scheduleFilter));
+}
+function renderScheduleList(selectKey) {
+  const items = scheduleItems();
+  const missing = !(scheduleCatalog ?? []).length;
+  $("opsCount").textContent = `${items.length}개 · 덮어 둔 일정 ${scheduleRows.length}개 · 게임 서버는 1분 안에 따라옵니다.${missing ? " 게임 목록을 읽지 못해 덮어 둔 줄만 보입니다." : ""}`;
+  $("opsList").innerHTML = items.map((it) => {
+    const eff = it.override ?? { startsAt: it.def?.startsAt ?? null, endsAt: it.def?.endsAt ?? null, enabled: true };
+    const [cls, label] = scheduleState(eff);
+    const tag = it.override ? (it.override.enabled ? "일정 덮음" : "꺼 둠") : "정의 기간";
+    return `<button class="nrow" data-id="${esc(scheduleKey(it.kind, it.id))}"><span class="tag ${cls}">${esc(label)}</span><b>${esc(it.name)}</b><small>${esc(SCHEDULE_KIND[it.kind] || it.kind)} · ${esc(it.id)} · ${esc(tag)}</small><small>${esc(windowText(eff.startsAt, eff.endsAt))}</small></button>`;
+  }).join("") || '<p class="hint">보일 항목이 없습니다.</p>';
+  $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => editSchedule(b.dataset.id)));
+  markSelected(selectKey);
+}
+function editSchedule(key) {
+  const box = $("opsDetail");
+  markSelected(key);
+  const [kind0, ...rest] = (key || "banner:").split(":");
+  const id0 = rest.join(":");
+  const o = key ? scheduleRows.find((r) => r.kind === kind0 && r.id === id0) : null;
+  const def = (scheduleCatalog ?? []).find((c) => c.kind === kind0 && c.id === id0) ?? null;
+  const ro = canWrite() ? "" : " disabled";
+  const val = (v) => (v ? fmtLocal(new Date(v)) : "");
+  const start = o ? o.startsAt : def?.startsAt;
+  const end = o ? o.endsAt : def?.endsAt;
+  const options = (kind) => (scheduleCatalog ?? []).filter((c) => c.kind === kind).map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  box.innerHTML = `<section class="card"><h2>${key ? esc(def?.name || id0) : "일정 덮기"}</h2>
+<p class="hint">무엇을 팔고 무엇이 나오는지는 바꾸지 않습니다. 기간과 켜짐만 덮고, 비운 칸은 그쪽 끝을 열어 둡니다(정의 값으로 돌아가지 않습니다). 상품에 연결된 배너가 닫히면 상품도 함께 닫힙니다.</p>
+<div class="row2"><div><label for="schKind">종류</label><select id="schKind"${key ? " disabled" : ro}>${Object.entries(SCHEDULE_KIND).map(([v, l]) => `<option value="${v}"${v === kind0 ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
+<div><label for="schId">ID</label><input id="schId" maxlength="96" list="schIds" autocomplete="off" value="${esc(id0)}"${key ? " disabled" : ro} /><datalist id="schIds">${options(kind0)}</datalist></div></div>
+<p class="hint" id="schDef">${def ? `정의 기간: ${esc(windowText(def.startsAt, def.endsAt))}${def.bannerId ? ` · 연결 배너 ${esc(def.bannerId)}` : ""}${def.storefront ? ` · ${esc(def.storefront)}` : ""}` : key ? "배포된 게임 목록에 없는 ID입니다. 오타면 이 줄은 아무것도 덮지 않습니다." : ""}</p>
+<div class="row2"><div><label for="schStart">시작 <span class="hint">비우면 처음부터</span></label><input id="schStart" data-datetime data-clearable data-presets="now,+1h,tomorrow9" data-empty="처음부터" aria-label="일정 시작 시각" value="${val(start)}"${ro} /></div>
+<div><label for="schEnd">종료 <span class="hint">비우면 끝없이</span></label><input id="schEnd" data-datetime data-clearable data-presets="+1d,+3d,+7d,+30d" data-empty="끝없이" aria-label="일정 종료 시각" value="${val(end)}"${ro} /></div></div>
+<label class="check"><input type="checkbox" id="schOn"${!o || o.enabled ? " checked" : ""}${ro} /> 켜 둠 <span class="hint">끄면 기간과 상관없이 닫습니다</span></label>
+<label for="schNote">메모 <span class="hint">200자</span></label><input id="schNote" maxlength="200" value="${esc(o?.note || "")}"${ro} />
+${o ? `<p class="hint">마지막 변경 ${esc(dt(o.updatedAt))}</p>` : ""}
+${canWrite() ? `<div class="actions"><button class="btn primary" id="schSave" type="button">저장</button><span class="spacer"></span>${o ? '<button class="btn ghost" id="schClear" type="button">정의 기간으로 되돌리기</button>' : ""}</div>` : '<p class="hint">조회만 가능한 권한입니다.</p>'}
+<p class="msg" id="schMsg" role="status"></p></section>`;
+  enhanceDateTimes(box);
+  if (!canWrite()) return;
+  if (!key) {
+    const sync = () => {
+      const k = $("schKind").value;
+      $("schIds").innerHTML = options(k);
+      const d = (scheduleCatalog ?? []).find((c) => c.kind === k && c.id === $("schId").value.trim());
+      $("schDef").textContent = d ? `정의 기간: ${windowText(d.startsAt, d.endsAt)}${d.bannerId ? ` · 연결 배너 ${d.bannerId}` : ""}` : "";
+    };
+    $("schKind").onchange = sync;
+    $("schId").oninput = sync;
+  }
+  $("schSave").onclick = async () => {
+    try {
+      const kind = key ? kind0 : $("schKind").value;
+      const id = key ? id0 : $("schId").value.trim();
+      if (!id) throw new Error("ID를 입력하세요.");
+      const known = (scheduleCatalog ?? []).some((c) => c.kind === kind && c.id === id);
+      if (!known && (scheduleCatalog ?? []).length && !(await api.ask(`「${id}」은(는) 배포된 게임 목록에 없습니다. 그래도 저장할까요?`))) return;
+      const startsAt = parseLocal($("schStart").value);
+      const endsAt = parseLocal($("schEnd").value);
+      if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt)) throw new Error("종료 시각이 시작 시각보다 늦어야 합니다.");
+      await rpc("admin_set_schedule", { p: { kind, id, startsAt, endsAt, enabled: $("schOn").checked, note: $("schNote").value.trim() } });
+      scheduleRows = await rpc("admin_list_schedule", {});
+      renderScheduleList(scheduleKey(kind, id));
+      editSchedule(scheduleKey(kind, id));
+      notify("schMsg", "저장했습니다. 게임 서버는 1분 안에, 플레이어 화면은 다음 접속부터 따라옵니다.");
+    } catch (e) {
+      notify("schMsg", e.message, true);
+    }
+  };
+  if ($("schClear"))
+    $("schClear").onclick = async () => {
+      if (!(await api.ask(`「${def?.name || id0}」의 덮어 둔 일정을 지우고 게임 정의 기간으로 되돌릴까요?`))) return;
+      try {
+        await rpc("admin_clear_schedule", { p_kind: kind0, p_id: id0 });
+        scheduleRows = await rpc("admin_list_schedule", {});
+        renderScheduleList(key);
+        editSchedule(key);
+        notify("schMsg", "정의 기간으로 되돌렸습니다.");
+      } catch (e) {
+        notify("schMsg", e.message, true);
+      }
+    };
+}
+
 // ── 계정 화면의 프로필 초기화 카드 ──
 const PROFILE_KIND = { nickname_reset: "닉네임 초기화", bio_reset: "한 줄 소개 초기화" };
 async function mountProfileReset(id) {
@@ -1937,7 +2088,7 @@ function openAnomaly(i, reload) {
     };
 }
 
-const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit, purchases: viewPurchases, ranking: () => viewRanking(), guilds: viewGuilds, bannedwords: viewBannedWords, banners: viewBanners, anomalies: () => viewAnomalies() };
+const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit, purchases: viewPurchases, ranking: () => viewRanking(), guilds: viewGuilds, bannedwords: viewBannedWords, banners: viewBanners, schedule: viewSchedule, anomalies: () => viewAnomalies() };
 
 export async function openView(id) {
   const view = VIEWS.find((v) => v.id === id && v.roles.includes(api.role));
