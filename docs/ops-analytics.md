@@ -4,6 +4,8 @@
 
 ## 적용 순서
 
+2026-11-11 QA·운영 적용을 확인했다. [실제 이력과 검증](migrations-2026-11-11.md)을 참고한다.
+
 1. 게임 저장소 `supabase/migrations/20261122000000_game_events.sql` — 저장이 바뀔 때 튜토리얼 칸·관문 첫 클리어·연구원 레벨·연구 횟수를
    `game_events`에, 상태를 바꾼 호출 수를 `game_call_daily`(하루 × 호출 이름)에 남긴다. 게임 코드는 바뀌지 않고, 기록이 실패해도 저장은 막지 않는다.
 2. 이 저장소 `supabase/migrations/20261122100000_ops_analytics.sql`.

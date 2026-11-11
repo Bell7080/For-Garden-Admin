@@ -26,6 +26,8 @@
 
 ## 적용 순서
 
+2026-11-11 QA·운영 적용을 확인했다. [실제 이력과 검증](migrations-2026-11-11.md)을 참고한다.
+
 1. 게임 저장소 `supabase/migrations/20261123000000_live_schedule.sql`
 2. 어드민 `supabase/migrations/20261123100000_ops_schedule.sql`
 
