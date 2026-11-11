@@ -17,7 +17,7 @@ http
     try {
       const local = path === "/" ? "/index.html" : path;
       if (
-        !/^\/(index\.html|admin\.(css|js)|ops\.js|catalog\.json|catalog\/[^.][\w/.-]*|fonts\/[\w.-]+|ui\/[\w.-]+|shared\/(languages|notice-body|legacy-save|notice-style|game-events)\.js)$/.test(
+        !/^\/(index\.html|admin\.(css|js)|ops\.js|catalog\.json|catalog\/[^.][\w/.-]*|fonts\/[\w.-]+|ui\/[\w.-]+|shared\/(languages|notice-body|legacy-save|notice-style|game-events|datetime)\.js)$/.test(
           local,
         )
       ) {
