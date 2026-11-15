@@ -19,6 +19,7 @@ for (const file of [
   "datetime.js",
   "notice-style.js",
   "game-events.js",
+  "recurring-slots.js",
 ])
   await cp(`shared/${file}`, `dist/shared/${file}`);
 console.log("Static admin built in dist/.");

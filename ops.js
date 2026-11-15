@@ -1,6 +1,7 @@
 // 운영 도구(문의·계정·우편·쿠폰·운영 설정·감사 로그). 모든 쓰기는 DB의 보안 정의자 함수가 역할을 다시 확인한다.
 // 여기서 버튼을 숨기는 것은 편의일 뿐이고, 권한의 최종 판단은 RLS와 함수가 한다.
 import { enhanceDateTimes } from "./ui/datetime.js";
+import { SLOTS, recurringOverlap } from "./shared/recurring-slots.js";
 
 const STATUS = { open: "접수", in_progress: "처리 중", answered: "답변 완료", closed: "종료" };
 const CATEGORY = { inquiry: "문의", bug: "버그", report: "신고", privacy: "개인정보·삭제", other: "기타" };
@@ -869,13 +870,6 @@ const WEEKDAYS = [[1, "월"], [2, "화"], [3, "수"], [4, "목"], [5, "금"], [6
 const ymd = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 
 // ───────── 정기 우편 ─────────
-const SLOTS = {
-  morning: { label: "아침", time: "08:00", name: "아침 푸시", title: "아침 식사 보급", body: "좋은 아침입니다! 든든한 아침 식사 보급품이 도착했어요.", hours: "6" },
-  lunch: { label: "점심", time: "12:00", name: "점심 푸시", title: "점심 식사 보급", body: "점심 시간이에요! 잠깐 쉬어 가세요. 보급품이 도착했습니다.", hours: "6" },
-  evening: { label: "저녁", time: "18:00", name: "저녁 푸시", title: "저녁 식사 보급", body: "하루 수고하셨습니다. 저녁 식사 보급품이 도착했어요.", hours: "6" },
-  hottime: { label: "핫타임", time: "20:00", name: "핫타임 푸시", title: "핫타임 보상", body: "지금은 핫타임! 제한 시간 안에 받아 가세요.", hours: "2" },
-  custom: { label: "기타", time: "09:00", name: "정기 우편", title: "", body: "", hours: "24" },
-};
 const SLOT_OPTIONS = Object.entries(SLOTS).map(([k, v]) => [k, v.label]);
 const VALID_HOURS = [["", "무제한"], ["2", "2시간"], ["4", "4시간"], ["6", "6시간"], ["12", "12시간"], ["24", "24시간"], ["72", "3일"], ["168", "7일"], ["custom", "직접 입력"]];
 const PRESET_HOURS = VALID_HOURS.map(([v]) => v).filter((v) => v && v !== "custom");
@@ -959,6 +953,13 @@ ${ro ? "" : `<div class="actions"><button class="btn primary" id="rmSave" type="
           if (hours === "custom") {
             hours = $("rmHoursCustom").value.trim();
             if (!/^\d{1,4}$/.test(hours) || Number(hours) < 1 || Number(hours) > 8760) throw new Error("보관 시간은 1~8760 사이의 정수(시간 단위)로 입력하세요.");
+          }
+          // 켜 둔 다른 정기 우편과 받을 수 있는 시간이 겹치면 한 번 묻는다(아침이 점심까지 남던 일).
+          if ($("rmOn").checked) {
+            const mine = { send_time: time, valid_hours: hours || null, days };
+            const others = await rest("recurring_mails?select=id,name,send_time,valid_hours,days&enabled=is.true&deleted_at=is.null");
+            const clash = others.filter((o) => o.id !== id && recurringOverlap(mine, o)).map((o) => o.name);
+            if (clash.length && !(await api.ask(`「${clash.join("」·「")}」과(와) 받을 수 있는 시간이 겹칩니다. 그대로 저장할까요?`))) return;
           }
           const r = await rpc("admin_save_recurring_mail", { p: { id: id || null, slot: $("rmSlot").value, name: $("rmName").value, title: $("rmTitle").value, body: $("rmBody").value, rewards: readRewards(), send_time: time, days, valid_hours: hours || null, include_new_accounts: $("rmNew").checked, active_from: from || null, active_until: until || null, enabled: $("rmOn").checked } });
           await loadRecurringList(r.id);
