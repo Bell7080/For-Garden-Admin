@@ -5,6 +5,10 @@
       "source": "/(.*)",
       "headers": [
         {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'sha256-3U0Al1FWdL+QyFBAZNG/9/BHN372xiTrovROsEfT5mM='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://udujahnlyhedlrfbaaow.supabase.co https://forgarden.vercel.app; worker-src 'none'; media-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-src 'none'; frame-ancestors 'none'"
+        },
+        {
           "key": "X-Content-Type-Options",
           "value": "nosniff"
         },
