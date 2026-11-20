@@ -1414,14 +1414,14 @@ async function openError(id, reload) {
 // ───────── 사전예약 ─────────
 // 홈페이지 사전예약(website_preregistrations). 연락처는 운영자·소유자만 원문, CS는 가린 값으로 본다.
 // 내보내기(원문 CSV)는 소유자만 — 문자·메일 발송 업체에 넘길 명단이라 매번 감사 기록이 남는다.
-const MIGRATION_PREREG = "20261124000000_preregistration_phone.sql";
+const MIGRATION_PREREG = "20261125000000_preregistration_phone_required.sql";
 const PREREG_PLATFORM = { android: "Android", ios: "iOS", both: "둘 다" };
 const PREREG_LOCALE = { ko: "한국어", en: "English", ja: "日本語" };
 async function viewPrereg() {
   const canList = ["owner", "operator", "cs"].includes(api.role);
   shell({
     title: "사전예약",
-    filters: canList ? `<input id="prQuery" placeholder="이메일·번호 일부 검색" autocomplete="off" aria-label="사전예약 검색" /><div class="filters"><select id="prChannel" aria-label="연락처"><option value="all">전체</option><option value="email">이메일 있음</option><option value="phone">번호 있음</option><option value="marketing">광고 수신 동의</option></select></div>` : "",
+    filters: canList ? `<input id="prQuery" placeholder="이메일·번호 일부 검색" autocomplete="off" aria-label="사전예약 검색" /><div class="filters"><select id="prChannel" aria-label="연락처"><option value="all">전체</option><option value="email">이메일 있음</option><option value="phone">번호 있음</option><option value="marketing">광고 수신 동의</option><option value="suspect">중복 의심</option><option value="legacy">예전 신청(번호 없음)</option></select></div>` : "",
   });
   const showStats = async () => {
     const box = $("opsDetail");
@@ -1431,10 +1431,23 @@ async function viewPrereg() {
       const chipsOf = (obj, labels = {}) => Object.entries(obj || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span class="chip">${esc(labels[k] || k)} <b>${num(v)}</b></span>`).join("") || '<span class="hint">기록 없음</span>';
       const daily = (d.daily || []).slice().reverse().map((x) => `<p><b>${esc(String(x.day))}</b> ${num(x.n)}명</p>`).join("") || '<p class="hint">최근 30일 신청 없음</p>';
       const owner = api.role === "owner";
-      box.innerHTML = `<section class="card"><p class="eyebrow">PRE-REGISTRATION</p><h2>전체 ${num(d.total)}명 <span class="hint">오늘 ${num(d.today)}</span></h2><div class="chips"><span class="chip">이메일 <b>${num(d.email)}</b></span><span class="chip">휴대폰 <b>${num(d.phone)}</b></span><span class="chip">둘 다 <b>${num(d.both)}</b></span><span class="chip">광고 수신 동의 <b>${num(d.marketing)}</b></span></div><h3>관심 플랫폼</h3><div class="chips">${chipsOf(d.platform, PREREG_PLATFORM)}</div><h3>언어</h3><div class="chips">${chipsOf(d.locale, PREREG_LOCALE)}</div><h3>유입 경로</h3><div class="chips">${chipsOf(d.source)}</div><p class="hint">홈페이지 주소에 <code>?ref=gstar</code>처럼 붙이면 그 이름으로 셉니다.</p></section><section class="card"><h3>최근 30일 일별 신청</h3><div class="ledger">${daily}</div></section>${owner ? `<section class="card"><h3>명단 내보내기 (CSV)</h3><p class="hint">원문 연락처가 담깁니다. 발송 업체에 넘길 때만 받고, 쓰고 난 파일은 지우세요. 내보낼 때마다 감사 로그에 남습니다. 문자는 광고 수신 동의자에게만, 광고성 메일은 「광고 수신 동의」가 예인 줄에만 보냅니다.</p><div class="actions"><button class="btn" type="button" data-export="email">이메일 명단</button><button class="btn" type="button" data-export="phone">휴대폰 명단</button><button class="btn ghost" type="button" data-export="all">전체</button></div><p class="msg" id="prExportMsg" role="status"></p></section>` : ""}`;
+      box.innerHTML = `<section class="card"><p class="eyebrow">PRE-REGISTRATION</p><h2>인정 ${num(d.counted ?? d.phone)}명 <span class="hint">전체 ${num(d.total)} · 오늘 ${num(d.today)}</span></h2><p class="hint">홈페이지 게이지는 번호가 있는 신청(번호 하나에 한 건)만 셉니다. 예전 이메일만의 신청 ${num(d.legacyEmailOnly ?? 0)}건은 같은 이메일로 번호를 붙이면 인정됩니다.</p><div class="chips"><span class="chip">문자 발송 대상(광고 동의) <b>${num(d.smsTargets ?? 0)}</b></span><span class="chip">이메일 <b>${num(d.email)}</b></span><span class="chip">휴대폰 <b>${num(d.phone)}</b></span><span class="chip">둘 다 <b>${num(d.both)}</b></span><span class="chip">광고 수신 동의 <b>${num(d.marketing)}</b></span></div><h3>관심 플랫폼</h3><div class="chips">${chipsOf(d.platform, PREREG_PLATFORM)}</div><h3>언어</h3><div class="chips">${chipsOf(d.locale, PREREG_LOCALE)}</div><h3>유입 경로</h3><div class="chips">${chipsOf(d.source)}</div><p class="hint">홈페이지 주소에 <code>?ref=gstar</code>처럼 붙이면 그 이름으로 셉니다.</p></section><section class="card"><h3>최근 30일 일별 신청</h3><div class="ledger">${daily}</div></section><section class="card" id="prSuspects"><h3>중복 의심</h3><p class="hint">불러오는 중…</p></section>${owner ? `<section class="card"><h3>명단 내보내기 (CSV)</h3><p class="hint">원문 연락처가 담깁니다. 발송 업체에 넘길 때만 받고, 쓰고 난 파일은 지우세요. 내보낼 때마다 감사 로그에 남습니다. 휴대폰 명단에는 광고 수신 동의자만 담깁니다. 광고성 메일도 「광고 수신 동의」가 예인 줄에만 보냅니다.</p><div class="actions"><button class="btn" type="button" data-export="email">이메일 명단</button><button class="btn" type="button" data-export="phone">휴대폰 명단</button><button class="btn ghost" type="button" data-export="all">전체</button></div><p class="msg" id="prExportMsg" role="status"></p></section>` : ""}`;
       box.querySelectorAll("[data-export]").forEach((b) => (b.onclick = () => exportPrereg(b.dataset.export)));
+      showSuspects();
     } catch (e) {
       box.innerHTML = `<section class="card">${NEEDS_DB.test(e.message) ? needsDbHtml(MIGRATION_PREREG) : `<p class="msg bad">${esc(e.message)}</p>`}</section>`;
+    }
+  };
+  // 같은 접속지 3건 이상 · 별칭 메일(점·+태그) 2건 이상 · 끝 네 자리가 이어진 번호 3개 이상. 막지는 않고 보여만 준다.
+  const showSuspects = async () => {
+    const card = $("prSuspects");
+    if (!card) return;
+    try {
+      const s = await rpc("admin_preregistration_suspects", {});
+      const group = (title, list, hint) => `<h4>${title} <span class="hint">${num(list.length)}묶음</span></h4>${list.length ? `<div class="ledger">${list.slice(0, 20).map((g) => `<p><b>${num(g.n)}건</b> ${esc(dt(g.firstAt))} ~ ${esc(dt(g.lastAt))}<br><small>${g.contacts.map(esc).join(" · ")}</small></p>`).join("")}</div>` : `<p class="hint">${hint}</p>`}`;
+      card.innerHTML = `<h3>중복 의심</h3><p class="hint">자동으로 막지 않습니다. 같은 사람이 부풀린 것으로 보이면 동의 철회 절차처럼 사유를 적고 지웁니다. 목록의 「중복 의심」 필터로 줄을 볼 수 있습니다.</p>${group("같은 접속지 3건 이상", s.ip || [], "없음")}${group("별칭 메일 2건 이상", s.email || [], "없음")}${group("이어진 번호 3개 이상", s.sequence || [], "없음")}`;
+    } catch (e) {
+      card.innerHTML = `<h3>중복 의심</h3>${NEEDS_DB.test(e.message) ? needsDbHtml(MIGRATION_PREREG) : `<p class="msg bad">${esc(e.message)}</p>`}`;
     }
   };
   if (!canList) {
@@ -1442,7 +1455,7 @@ async function viewPrereg() {
     return showStats();
   }
   let rows = [];
-  const rowHtml = (r) => `<button class="nrow" data-id="${esc(r.id)}"><span class="tag">${esc(PREREG_PLATFORM[r.platform] || r.platform)}</span>${r.marketing ? '<span class="tag pub">광고 동의</span>' : ""}${r.source ? `<span class="tag">${esc(r.source)}</span>` : ""}<b>${esc(r.email || "")}${r.email && r.phone ? " · " : ""}${esc(r.phone || "")}</b><small>${esc(dt(r.createdAt))} · ${esc(PREREG_LOCALE[r.locale] || r.locale)}</small></button>`;
+  const rowHtml = (r) => `<button class="nrow" data-id="${esc(r.id)}"><span class="tag">${esc(PREREG_PLATFORM[r.platform] || r.platform)}</span>${r.marketing ? '<span class="tag pub">광고 동의</span>' : ""}${r.source ? `<span class="tag">${esc(r.source)}</span>` : ""}${r.phone ? "" : '<span class="tag">번호 없음</span>'}${r.sameIp >= 3 ? `<span class="tag warn">같은 접속지 ${num(r.sameIp)}</span>` : ""}${r.sameEmail >= 2 ? `<span class="tag warn">별칭 메일 ${num(r.sameEmail)}</span>` : ""}<b>${esc(r.email || "")}${r.email && r.phone ? " · " : ""}${esc(r.phone || "")}</b><small>${esc(dt(r.createdAt))} · ${esc(PREREG_LOCALE[r.locale] || r.locale)}</small></button>`;
   const paint = (more) => {
     $("opsList").innerHTML = rows.map(rowHtml).join("") + (more ? '<button class="btn ghost" type="button" id="prMore">더 보기</button>' : "") || '<p class="hint">조건에 맞는 신청이 없습니다.</p>';
     $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openPrereg(rows.find((r) => r.id === b.dataset.id), () => load())));
@@ -1470,7 +1483,7 @@ function openPrereg(r, reload) {
   if (!r) return;
   markSelected(r.id);
   const canDelete = canWrite();
-  $("opsDetail").innerHTML = `<section class="card"><p class="eyebrow">PRE-REGISTRATION</p><h2>${esc(r.email || r.phone || "—")}</h2><table class="kv"><tbody><tr><th>이메일</th><td>${esc(r.email || "—")}</td></tr><tr><th>휴대폰</th><td>${esc(r.phone || "—")}</td></tr><tr><th>관심 플랫폼</th><td>${esc(PREREG_PLATFORM[r.platform] || r.platform)}</td></tr><tr><th>언어</th><td>${esc(PREREG_LOCALE[r.locale] || r.locale)}</td></tr><tr><th>유입 경로</th><td>${esc(r.source || "직접")}</td></tr><tr><th>광고 수신 동의</th><td>${r.marketing ? "예" : "아니오"}</td></tr><tr><th>동의 문서</th><td>${esc(r.consentVersion)}</td></tr><tr><th>신청 시각</th><td>${esc(dt(r.createdAt))}</td></tr></tbody></table></section>${canDelete ? `<section class="card"><h3>삭제 (동의 철회·삭제 요청)</h3><p class="hint">지우면 되돌릴 수 없습니다. 감사 로그에는 가린 연락처와 사유만 남습니다.</p><label for="prReason">사유</label><input id="prReason" maxlength="200" placeholder="예: 문의 #123 철회 요청" /><div class="actions">${trashBtn("prDelete", "삭제")}</div><p class="msg" id="prMsg" role="status"></p></section>` : ""}`;
+  $("opsDetail").innerHTML = `<section class="card"><p class="eyebrow">PRE-REGISTRATION</p><h2>${esc(r.email || r.phone || "—")}</h2><table class="kv"><tbody><tr><th>이메일</th><td>${esc(r.email || "—")}</td></tr><tr><th>휴대폰</th><td>${esc(r.phone || "—")}</td></tr><tr><th>관심 플랫폼</th><td>${esc(PREREG_PLATFORM[r.platform] || r.platform)}</td></tr><tr><th>언어</th><td>${esc(PREREG_LOCALE[r.locale] || r.locale)}</td></tr><tr><th>유입 경로</th><td>${esc(r.source || "직접")}</td></tr><tr><th>광고 수신 동의</th><td>${r.marketing ? "예" : "아니오"}</td></tr><tr><th>동의 문서</th><td>${esc(r.consentVersion)}</td></tr><tr><th>신청 시각</th><td>${esc(dt(r.createdAt))}</td></tr>${r.phoneAddedAt ? `<tr><th>번호 추가 시각</th><td>${esc(dt(r.phoneAddedAt))}</td></tr>` : ""}${r.sameIp != null ? `<tr><th>같은 접속지 신청</th><td>${num(r.sameIp)}건</td></tr>` : ""}${r.sameEmail != null && r.email ? `<tr><th>같은 메일(별칭 포함)</th><td>${num(r.sameEmail)}건</td></tr>` : ""}</tbody></table></section>${canDelete ? `<section class="card"><h3>삭제 (동의 철회·삭제 요청)</h3><p class="hint">지우면 되돌릴 수 없습니다. 감사 로그에는 가린 연락처와 사유만 남습니다.</p><label for="prReason">사유</label><input id="prReason" maxlength="200" placeholder="예: 문의 #123 철회 요청" /><div class="actions">${trashBtn("prDelete", "삭제")}</div><p class="msg" id="prMsg" role="status"></p></section>` : ""}`;
   if (!canDelete) return;
   $("prDelete").onclick = async () => {
     const reason = $("prReason").value.trim();

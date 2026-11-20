@@ -372,6 +372,10 @@ label .hint {
 .tag.pin {
   color: var(--yellow);
 }
+.tag.warn {
+  color: var(--bad);
+  border-color: var(--bad);
+}
 .main {
   padding: 24px;
   display: grid;
