@@ -70,6 +70,7 @@ const VIEWS = [
   { id: "ranking", label: "랭킹", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "랭킹 관리" },
   { id: "guilds", label: "길드", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "PLAYER DESK", title: "길드 관리" },
   { id: "bannedwords", label: "금칙어", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "SAFETY", title: "금칙어" },
+  { id: "prereg", label: "사전예약", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LAUNCH DESK", title: "사전예약" },
   { id: "faq", label: "FAQ", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "CONTENT DESK", title: "자주 묻는 질문" },
   { id: "anomalies", label: "이상 징후", roles: ["owner", "operator", "cs", "viewer"], eyebrow: "LIVE OPS", title: "이상 징후" },
   { id: "errors", label: "오류 보고", roles: ["owner", "operator"], eyebrow: "LIVE OPS", title: "클라이언트 오류" },
@@ -1410,6 +1411,105 @@ async function openError(id, reload) {
   }
 }
 
+// ───────── 사전예약 ─────────
+// 홈페이지 사전예약(website_preregistrations). 연락처는 운영자·소유자만 원문, CS는 가린 값으로 본다.
+// 내보내기(원문 CSV)는 소유자만 — 문자·메일 발송 업체에 넘길 명단이라 매번 감사 기록이 남는다.
+const MIGRATION_PREREG = "20261124000000_preregistration_phone.sql";
+const PREREG_PLATFORM = { android: "Android", ios: "iOS", both: "둘 다" };
+const PREREG_LOCALE = { ko: "한국어", en: "English", ja: "日本語" };
+async function viewPrereg() {
+  const canList = ["owner", "operator", "cs"].includes(api.role);
+  shell({
+    title: "사전예약",
+    filters: canList ? `<input id="prQuery" placeholder="이메일·번호 일부 검색" autocomplete="off" aria-label="사전예약 검색" /><div class="filters"><select id="prChannel" aria-label="연락처"><option value="all">전체</option><option value="email">이메일 있음</option><option value="phone">번호 있음</option><option value="marketing">광고 수신 동의</option></select></div>` : "",
+  });
+  const showStats = async () => {
+    const box = $("opsDetail");
+    box.innerHTML = '<section class="card"><p class="hint">불러오는 중…</p></section>';
+    try {
+      const d = await rpc("admin_preregistration_stats", {});
+      const chipsOf = (obj, labels = {}) => Object.entries(obj || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span class="chip">${esc(labels[k] || k)} <b>${num(v)}</b></span>`).join("") || '<span class="hint">기록 없음</span>';
+      const daily = (d.daily || []).slice().reverse().map((x) => `<p><b>${esc(String(x.day))}</b> ${num(x.n)}명</p>`).join("") || '<p class="hint">최근 30일 신청 없음</p>';
+      const owner = api.role === "owner";
+      box.innerHTML = `<section class="card"><p class="eyebrow">PRE-REGISTRATION</p><h2>전체 ${num(d.total)}명 <span class="hint">오늘 ${num(d.today)}</span></h2><div class="chips"><span class="chip">이메일 <b>${num(d.email)}</b></span><span class="chip">휴대폰 <b>${num(d.phone)}</b></span><span class="chip">둘 다 <b>${num(d.both)}</b></span><span class="chip">광고 수신 동의 <b>${num(d.marketing)}</b></span></div><h3>관심 플랫폼</h3><div class="chips">${chipsOf(d.platform, PREREG_PLATFORM)}</div><h3>언어</h3><div class="chips">${chipsOf(d.locale, PREREG_LOCALE)}</div><h3>유입 경로</h3><div class="chips">${chipsOf(d.source)}</div><p class="hint">홈페이지 주소에 <code>?ref=gstar</code>처럼 붙이면 그 이름으로 셉니다.</p></section><section class="card"><h3>최근 30일 일별 신청</h3><div class="ledger">${daily}</div></section>${owner ? `<section class="card"><h3>명단 내보내기 (CSV)</h3><p class="hint">원문 연락처가 담깁니다. 발송 업체에 넘길 때만 받고, 쓰고 난 파일은 지우세요. 내보낼 때마다 감사 로그에 남습니다. 문자는 광고 수신 동의자에게만, 광고성 메일은 「광고 수신 동의」가 예인 줄에만 보냅니다.</p><div class="actions"><button class="btn" type="button" data-export="email">이메일 명단</button><button class="btn" type="button" data-export="phone">휴대폰 명단</button><button class="btn ghost" type="button" data-export="all">전체</button></div><p class="msg" id="prExportMsg" role="status"></p></section>` : ""}`;
+      box.querySelectorAll("[data-export]").forEach((b) => (b.onclick = () => exportPrereg(b.dataset.export)));
+    } catch (e) {
+      box.innerHTML = `<section class="card">${NEEDS_DB.test(e.message) ? needsDbHtml(MIGRATION_PREREG) : `<p class="msg bad">${esc(e.message)}</p>`}</section>`;
+    }
+  };
+  if (!canList) {
+    $("opsCount").textContent = "조회 권한은 통계만 볼 수 있습니다.";
+    return showStats();
+  }
+  let rows = [];
+  const rowHtml = (r) => `<button class="nrow" data-id="${esc(r.id)}"><span class="tag">${esc(PREREG_PLATFORM[r.platform] || r.platform)}</span>${r.marketing ? '<span class="tag pub">광고 동의</span>' : ""}${r.source ? `<span class="tag">${esc(r.source)}</span>` : ""}<b>${esc(r.email || "")}${r.email && r.phone ? " · " : ""}${esc(r.phone || "")}</b><small>${esc(dt(r.createdAt))} · ${esc(PREREG_LOCALE[r.locale] || r.locale)}</small></button>`;
+  const paint = (more) => {
+    $("opsList").innerHTML = rows.map(rowHtml).join("") + (more ? '<button class="btn ghost" type="button" id="prMore">더 보기</button>' : "") || '<p class="hint">조건에 맞는 신청이 없습니다.</p>';
+    $("opsList").querySelectorAll(".nrow").forEach((b) => (b.onclick = () => openPrereg(rows.find((r) => r.id === b.dataset.id), () => load())));
+    if ($("prMore")) $("prMore").onclick = () => load(true);
+  };
+  const load = async (append = false) => {
+    try {
+      const res = await rpc("admin_preregistrations", { p_query: $("prQuery").value.trim() || null, p_channel: $("prChannel").value, p_before: append && rows.length ? rows[rows.length - 1].createdAt : null, p_limit: 100 });
+      rows = append ? [...rows, ...res.rows] : res.rows;
+      $("opsCount").textContent = `${num(rows.length)}건 표시${res.masked ? " · 연락처는 가려서 보입니다" : ""}`;
+      paint(res.rows.length === 100);
+    } catch (e) {
+      $("opsCount").textContent = NEEDS_DB.test(e.message) ? `DB 업데이트가 필요합니다(${MIGRATION_PREREG}).` : e.message;
+    }
+  };
+  $("prChannel").onchange = () => load();
+  let timer;
+  $("prQuery").oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(load, 300);
+  };
+  await Promise.all([load(), showStats()]);
+}
+function openPrereg(r, reload) {
+  if (!r) return;
+  markSelected(r.id);
+  const canDelete = canWrite();
+  $("opsDetail").innerHTML = `<section class="card"><p class="eyebrow">PRE-REGISTRATION</p><h2>${esc(r.email || r.phone || "—")}</h2><table class="kv"><tbody><tr><th>이메일</th><td>${esc(r.email || "—")}</td></tr><tr><th>휴대폰</th><td>${esc(r.phone || "—")}</td></tr><tr><th>관심 플랫폼</th><td>${esc(PREREG_PLATFORM[r.platform] || r.platform)}</td></tr><tr><th>언어</th><td>${esc(PREREG_LOCALE[r.locale] || r.locale)}</td></tr><tr><th>유입 경로</th><td>${esc(r.source || "직접")}</td></tr><tr><th>광고 수신 동의</th><td>${r.marketing ? "예" : "아니오"}</td></tr><tr><th>동의 문서</th><td>${esc(r.consentVersion)}</td></tr><tr><th>신청 시각</th><td>${esc(dt(r.createdAt))}</td></tr></tbody></table></section>${canDelete ? `<section class="card"><h3>삭제 (동의 철회·삭제 요청)</h3><p class="hint">지우면 되돌릴 수 없습니다. 감사 로그에는 가린 연락처와 사유만 남습니다.</p><label for="prReason">사유</label><input id="prReason" maxlength="200" placeholder="예: 문의 #123 철회 요청" /><div class="actions">${trashBtn("prDelete", "삭제")}</div><p class="msg" id="prMsg" role="status"></p></section>` : ""}`;
+  if (!canDelete) return;
+  $("prDelete").onclick = async () => {
+    const reason = $("prReason").value.trim();
+    if (!reason) return notify("prMsg", "사유를 입력해야 합니다.", true);
+    if (!(await api.ask(`「${r.email || r.phone}」 사전예약을 삭제할까요? 되돌릴 수 없습니다.`))) return;
+    try {
+      await rpc("admin_delete_preregistration", { p_id: r.id, p_reason: reason });
+      $("opsDetail").innerHTML = placeholder("삭제했습니다.");
+      await reload();
+    } catch (e) {
+      notify("prMsg", e.message, true);
+    }
+  };
+}
+// 엑셀에서 한글이 깨지지 않게 BOM을 붙이고, 수식으로 읽히는 값(=, +, -, @로 시작)은 앞에 '를 붙인다.
+async function exportPrereg(channel) {
+  const label = { email: "이메일", phone: "휴대폰", all: "전체" }[channel];
+  if (!(await api.ask(`${label} 명단을 원문 연락처로 내려받을까요? 감사 로그에 남습니다.`))) return;
+  try {
+    const rows = await rpc("admin_export_preregistrations", { p_channel: channel });
+    const cols = [["email", "이메일"], ["phone", "휴대폰"], ["platform", "플랫폼"], ["locale", "언어"], ["source", "유입 경로"], ["marketing", "광고 수신 동의"], ["consentVersion", "동의 문서"], ["consentedAt", "동의 시각"], ["marketingConsentedAt", "광고 동의 시각"], ["createdAt", "신청 시각"]];
+    const cell = (v) => {
+      let t = v === true ? "Y" : v === false ? "N" : v == null ? "" : String(v);
+      if (/^[=+\-@]/.test(t)) t = "'" + t;
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const csv = "﻿" + [cols.map((c) => c[1]).join(","), ...rows.map((r) => cols.map((c) => cell(r[c[0]])).join(","))].join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: `preregistrations-${channel}-${new Date().toISOString().slice(0, 10)}.csv` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify("prExportMsg", `${num(rows.length)}명을 내려받았습니다.`);
+  } catch (e) {
+    notify("prExportMsg", NEEDS_DB.test(e.message) ? `DB 업데이트가 필요합니다(${MIGRATION_PREREG}).` : e.message, true);
+  }
+}
+
 // ───────── 운영진 권한 ─────────
 const ROLE_LABEL = { owner: "소유자", operator: "운영자", cs: "CS", viewer: "조회" };
 const ROLE_HINT = { owner: "모든 기능 + 권한·감사 로그", operator: "공지·우편·쿠폰·이벤트·재화 조정", cs: "문의 답변·계정 조회·정지", viewer: "조회만" };
@@ -2089,7 +2189,7 @@ function openAnomaly(i, reload) {
     };
 }
 
-const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit, purchases: viewPurchases, ranking: () => viewRanking(), guilds: viewGuilds, bannedwords: viewBannedWords, banners: viewBanners, schedule: viewSchedule, anomalies: () => viewAnomalies() };
+const RENDER = { dashboard: viewDashboard, faq: viewFaqs, errors: viewErrors, staff: viewStaff, patchnotes: viewPatchNotes, tickets: viewTickets, players: viewPlayers, mails: () => viewMails(), coupons: viewCoupons, events: () => viewEvents(), config: viewConfig, trash: viewTrash, audit: viewAudit, purchases: viewPurchases, ranking: () => viewRanking(), guilds: viewGuilds, bannedwords: viewBannedWords, banners: viewBanners, schedule: viewSchedule, anomalies: () => viewAnomalies(), prereg: viewPrereg };
 
 export async function openView(id) {
   const view = VIEWS.find((v) => v.id === id && v.roles.includes(api.role));
