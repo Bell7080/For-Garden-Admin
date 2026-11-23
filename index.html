@@ -66,6 +66,8 @@
           <h1 id="deskTitle">공지 관리</h1>
         </div>
         <span class="spacer"></span><span id="who"></span
+        ><button class="btn ghost" id="mfaSetup" type="button" hidden>
+          2단계 인증 설정</button
         ><button class="btn ghost" id="logout" type="button">로그아웃</button>
       </header>
       <nav class="main-nav" id="mainNav" role="tablist" aria-label="운영 메뉴"></nav>
@@ -424,6 +426,25 @@
       <form method="dialog" class="actions">
         <button class="btn" value="cancel" autofocus>취소</button
         ><button class="btn primary" value="ok">계속</button>
+      </form>
+    </dialog>
+    <dialog id="mfaDialog" aria-labelledby="mfaTitle">
+      <h2 id="mfaTitle">2단계 인증</h2>
+      <p id="mfaText"></p>
+      <img id="mfaQr" alt="인증 앱 등록 QR 코드" width="200" height="200" hidden />
+      <p id="mfaSecret" hidden></p>
+      <form method="dialog" class="actions">
+        <input
+          id="mfaCode"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          pattern="[0-9]{6}"
+          maxlength="6"
+          placeholder="6자리 코드"
+          aria-label="인증 코드 6자리"
+        />
+        <button class="btn" value="cancel">취소</button
+        ><button class="btn primary" value="ok">확인</button>
       </form>
     </dialog>
     <script type="module" src="/ui/controls.js"></script>

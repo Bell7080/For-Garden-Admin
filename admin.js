@@ -98,6 +98,102 @@ function ask(message) {
     ),
   );
 }
+// ---------- 2단계 인증 (인증 앱 TOTP) ----------
+// 코드를 묻는 창. 취소하면 null.
+function askCode({ title, text, qr = "", secret = "" }) {
+  const dialog = $("mfaDialog");
+  $("mfaTitle").textContent = title;
+  $("mfaText").textContent = text;
+  $("mfaQr").hidden = !qr;
+  if (qr) $("mfaQr").src = qr;
+  else $("mfaQr").removeAttribute("src");
+  $("mfaSecret").hidden = !secret;
+  $("mfaSecret").textContent = secret ? `직접 입력 키: ${secret}` : "";
+  $("mfaCode").value = "";
+  dialog.returnValue = "";
+  dialog.showModal();
+  $("mfaCode").focus();
+  return new Promise((resolve) =>
+    dialog.addEventListener(
+      "close",
+      () =>
+        resolve(
+          dialog.returnValue === "ok" ? $("mfaCode").value.trim() : null,
+        ),
+      { once: true },
+    ),
+  );
+}
+async function authJson(path, init) {
+  const r = await call("/auth/v1/" + path, init);
+  if (!r.ok) throw new Error(`인증 요청 실패 (${r.status})`);
+  return r.status === 204 ? null : r.json().catch(() => null);
+}
+// 등록된 인증 앱의 코드를 확인하고 세션을 2단계 통과 세션으로 바꾼다.
+async function verifyFactor(factorId, code) {
+  const challenge = await authJson(`factors/${factorId}/challenge`, {
+    method: "POST",
+    json: {},
+  });
+  const r = await call(`/auth/v1/factors/${factorId}/verify`, {
+    method: "POST",
+    json: { challenge_id: challenge.id, code },
+  });
+  if (!r.ok) return false;
+  const j = await r.json();
+  session.access = j.access_token;
+  session.refresh = j.refresh_token;
+  return true;
+}
+// 로그인 직후: 인증 앱을 등록한 계정은 코드를 통과해야 들어간다. 등록 여부를 돌려준다.
+async function passMfa() {
+  const user = await authJson("user");
+  const factor = (user?.factors ?? []).find(
+    (f) => f.factor_type === "totp" && f.status === "verified",
+  );
+  if (!factor) return false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const code = await askCode({
+      title: "2단계 인증",
+      text: attempt
+        ? "코드가 맞지 않습니다. 인증 앱의 새 코드를 입력해 주세요."
+        : "인증 앱에 표시된 6자리 코드를 입력해 주세요.",
+    });
+    if (code === null) break;
+    if (/^[0-9]{6}$/.test(code) && (await verifyFactor(factor.id, code)))
+      return true;
+  }
+  throw new Error("2단계 인증을 통과하지 못했습니다.");
+}
+async function setupMfa() {
+  const user = await authJson("user");
+  // 끝내지 못한 등록이 남아 있으면 지우고 새로 시작한다.
+  for (const f of user?.factors ?? [])
+    if (f.status !== "verified")
+      await call(`/auth/v1/factors/${f.id}`, { method: "DELETE" });
+  const enrolled = await authJson("factors", {
+    method: "POST",
+    json: { factor_type: "totp", friendly_name: `admin-${Date.now()}` },
+  });
+  const code = await askCode({
+    title: "2단계 인증 설정",
+    text: "인증 앱(Google Authenticator 등)으로 QR 코드를 읽은 뒤, 앱에 표시된 6자리 코드를 입력해 주세요.",
+    qr: enrolled.totp?.qr_code ?? "",
+    secret: enrolled.totp?.secret ?? "",
+  });
+  if (code === null) return;
+  if (!/^[0-9]{6}$/.test(code) || !(await verifyFactor(enrolled.id, code))) {
+    await ask("코드가 맞지 않아 설정하지 못했습니다. 다시 시도해 주세요.");
+    return;
+  }
+  $("mfaSetup").hidden = true;
+  await ask(
+    "2단계 인증을 설정했습니다. 다음 로그인부터 인증 앱의 코드를 함께 입력합니다.",
+  );
+}
+$("mfaSetup").onclick = () =>
+  setupMfa().catch((err) => ask(`2단계 인증 설정 실패: ${err.message}`));
+
 function statusOf(n) {
   return n.status === "draft"
     ? "draft"
@@ -200,6 +296,8 @@ $("form").addEventListener("submit", async (e) => {
       session = null;
       throw new Error("이 계정은 관리자 권한이 없습니다.");
     }
+    const mfaOn = await passMfa();
+    $("mfaSetup").hidden = mfaOn;
     role =
       roles.find((r) => ["owner", "operator"].includes(r.role))?.role ??
       roles[0]?.role ??
@@ -230,6 +328,7 @@ function logout() {
   $("empty").hidden = false;
   $("list").innerHTML = "";
   $("who").textContent = "";
+  $("mfaSetup").hidden = true;
 }
 $("logout").onclick = async () => {
   if (!dirty || (await ask("저장하지 않은 변경이 있습니다. 로그아웃할까요?")))
